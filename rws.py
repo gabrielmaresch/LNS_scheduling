@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 # If performance becomes an issue, we can use numpy arrays for the assignment and consecutive counters, 
 # but for simplicity and readability we use lists of lists here.
@@ -200,8 +200,38 @@ class RWS:
             # required number of shifts
             self._assert_required_shifts()
 
-        def _assert_consecutive_constraints(self) -> None:
+
+
+        def _count_forbidden_sequences(self) -> int:
+            """Count violations of forbidden sequence patterns."""
             inst = self.instance
+            forbidden = set(inst.forbidden_sequences)
+            count = 0
+
+            for worker in range(inst.num_workers):
+                day_range = range(inst.num_days) if inst.cyclicity else range(1, inst.num_days)
+                for day in day_range:
+                    prev_day = (day - 1) % inst.num_days
+                    prev_shift = self.assignment[prev_day][worker]
+                    cur_shift = self.assignment[day][worker]
+                    
+                    # Check 2-tuples
+                    if (prev_shift, cur_shift) in forbidden:
+                        count += 1
+                    
+                    # Check 3-shift patterns
+                    if day >= 2 or (inst.cyclicity and day >= 1):
+                        prev_prev_day = (day - 2) % inst.num_days
+                        prev_prev_shift = self.assignment[prev_prev_day][worker]
+                        if (prev_prev_shift, prev_shift, cur_shift) in forbidden:
+                            count += 1
+
+            return count
+
+        def _count_min_violations(self) -> int:
+            """Count violations of minimum consecutive requirements."""
+            inst = self.instance
+            count = 0
 
             def runs_for_worker(worker: int, pred) -> List[int]:
                 values = [pred(self.assignment[d][worker]) for d in range(inst.num_days)]
@@ -211,32 +241,56 @@ class RWS:
                 work_runs = runs_for_worker(worker, lambda s: s != 0)
                 off_runs = runs_for_worker(worker, lambda s: s == 0)
 
-                if any(r < inst.min_consecutive_work for r in work_runs):
-                    raise AssertionError(f"worker {worker} violates min_consecutive_work")
-                if any(r > inst.max_consecutive_work for r in work_runs):
-                    raise AssertionError(f"worker {worker} violates max_consecutive_work")
-                if any(r < inst.min_consecutive_off for r in off_runs):
-                    raise AssertionError(f"worker {worker} violates min_consecutive_off")
-                if any(r > inst.max_consecutive_off for r in off_runs):
-                    raise AssertionError(f"worker {worker} violates max_consecutive_off")
+                for r in work_runs:
+                    if r < inst.min_consecutive_work:
+                        count += 1
+                for r in off_runs:
+                    if r < inst.min_consecutive_off:
+                        count += 1
 
                 for shift_id in range(len(inst.shift_names)):
                     shift_runs = runs_for_worker(worker, lambda s, sid=shift_id: s == sid)
                     min_shift = inst.min_consecutive_shift.get(shift_id, 0)
-                    max_shift = inst.max_consecutive_shift.get(shift_id, 10**9)
-                    if any(r < min_shift for r in shift_runs):
-                        raise AssertionError(
-                            f"worker {worker} violates min consecutive for shift {shift_id}"
-                        )
-                    if any(r > max_shift for r in shift_runs):
-                        raise AssertionError(
-                            f"worker {worker} violates max consecutive for shift {shift_id}"
-                        )
+                    for r in shift_runs:
+                        if r < min_shift:
+                            count += 1
 
-        def _assert_required_shifts(self) -> None:
-            """Validate that each shift appears the required number of times per day in the schedule."""
+            return count
+
+        def _count_max_violations(self) -> int:
+            """Count violations of maximum consecutive requirements."""
             inst = self.instance
-            
+            count = 0
+
+            def runs_for_worker(worker: int, pred) -> List[int]:
+                values = [pred(self.assignment[d][worker]) for d in range(inst.num_days)]
+                return self._extract_run_lengths(values, inst.cyclicity)
+
+            for worker in range(inst.num_workers):
+                work_runs = runs_for_worker(worker, lambda s: s != 0)
+                off_runs = runs_for_worker(worker, lambda s: s == 0)
+
+                for r in work_runs:
+                    if r > inst.max_consecutive_work:
+                        count += 1
+                for r in off_runs:
+                    if r > inst.max_consecutive_off:
+                        count += 1
+
+                for shift_id in range(len(inst.shift_names)):
+                    shift_runs = runs_for_worker(worker, lambda s, sid=shift_id: s == sid)
+                    max_shift = inst.max_consecutive_shift.get(shift_id, 10**9)
+                    for r in shift_runs:
+                        if r > max_shift:
+                            count += 1
+
+            return count
+
+        def _count_required_shifts_violations(self) -> int:
+            """Count violations of required shift counts per day."""
+            inst = self.instance
+            count = 0
+
             for shift_id, req_count in inst.required_number_of_shifts.items():
                 # Normalize to per-day requirements
                 if isinstance(req_count, int):
@@ -251,10 +305,9 @@ class RWS:
                         if self.assignment[day][worker] == shift_id
                     )
                     if actual != required:
-                        raise AssertionError(
-                            f"shift {shift_id} ({inst.shift_names[shift_id]}) requires {required} occurrences on day {day}, "
-                            f"but has {actual}"
-                        )
+                        count += 1
+
+            return count
 
         @staticmethod
         def _extract_run_lengths(flags: Sequence[bool], cyclic: bool) -> List[int]:
@@ -372,6 +425,177 @@ class RWS:
             
             print("="*80 + "\n")
 
+        def display_violations(self) -> None:
+            """Print compact violation summaries (per-worker, per-day and totals).
+
+            Uses `violation_worker()`, `violation_day()` and `violation_totals()`.
+            """
+            worker_viol = self.violation_worker()
+            print("min/max/sequence violation counts per worker:")
+            print("="*80)
+            for w, stats in worker_viol.items():
+                print(f"  Worker {w}: min={stats['min']:>2}  max={stats['max']:>2}  sequence={stats.get('sequence',0):>2}")
+            print("="*80 + "\n")
+
+            day_viol = self.violation_day()
+            print("Required-shift violation counts per day:")
+            print("="*80)
+            for d in range(self.instance.num_days):
+                print(f"  Day {d}: {day_viol.get(d, 0):>2}")
+            print("="*80 + "\n")
+
+            totals = self.violation_totals()
+            print("Total violated clauses:")
+            print("="*80)
+            for k, v in totals.items():
+                print(f"  {k:.<40} {v:>3}")
+            print("="*80)
+            print(f"  {'Total violations':.<40} {sum(totals.values()):>3}")
+            print("="*80 + "\n")
+
+        # violation methods seem to be excessive, can surely be implemented in slimmer way.
+        def violation_worker(self) -> Dict[int, Dict[str, int]]:
+            """Return per-worker counts of consecutive violations.
+
+            Only counts minimum/maximum consecutive violations (work/off and
+            per-shift) attributed to each worker. Does NOT include forbidden
+            sequence or required-shift clause counts.
+
+            Returns dict: {worker: {'min': int, 'max': int}}
+            """
+            inst = self.instance
+            out: Dict[int, Dict[str, int]] = {w: {'min': 0, 'max': 0, 'sequence': 0} for w in range(inst.num_workers)}
+
+            def runs_for_worker_positions(worker: int, pred):
+                flags = [pred(self.assignment[d][worker]) for d in range(inst.num_days)]
+                # produce (start,end,length) runs, merging cyclic ends
+                n = len(flags)
+                runs = []
+                i = 0
+                while i < n:
+                    if flags[i]:
+                        start = i
+                        j = i
+                        while j < n and flags[j]:
+                            j += 1
+                        runs.append((start, j - 1, j - start))
+                        i = j
+                    else:
+                        i += 1
+                if inst.cyclicity and runs and flags[0] and flags[-1]:
+                    if len(runs) == 1 and runs[0][2] == n:
+                        return [(0, n - 1, n)]
+                    first = runs[0]
+                    last = runs[-1]
+                    merged = (last[0], first[1], last[2] + first[2])
+                    middle = runs[1:-1] if len(runs) > 2 else []
+                    runs = [merged] + middle
+                return runs
+
+            for w in range(inst.num_workers):
+                # forbidden sequences (2-tuple and 3-tuple) attributed to worker
+                forbidden = set(inst.forbidden_sequences)
+                day_range = range(inst.num_days) if inst.cyclicity else range(1, inst.num_days)
+                for day in day_range:
+                    prev = (day - 1) % inst.num_days
+                    prev_shift = self.assignment[prev][w]
+                    cur_shift = self.assignment[day][w]
+                    if (prev_shift, cur_shift) in forbidden:
+                        out[w]['sequence'] += 1
+                    if day >= 2 or (inst.cyclicity and day >= 1):
+                        prev2 = (day - 2) % inst.num_days
+                        prev2_shift = self.assignment[prev2][w]
+                        if (prev2_shift, prev_shift, cur_shift) in forbidden:
+                            out[w]['sequence'] += 1
+
+                # work runs
+                for run in runs_for_worker_positions(w, lambda s: s != 0):
+                    if run[2] < inst.min_consecutive_work:
+                        out[w]['min'] += 1
+                    if run[2] > inst.max_consecutive_work:
+                        out[w]['max'] += 1
+
+                # off runs
+                for run in runs_for_worker_positions(w, lambda s: s == 0):
+                    if run[2] < inst.min_consecutive_off:
+                        out[w]['min'] += 1
+                    if run[2] > inst.max_consecutive_off:
+                        out[w]['max'] += 1
+
+                # shift-specific runs
+                for sid in range(len(inst.shift_names)):
+                    min_shift = inst.min_consecutive_shift.get(sid, 0)
+                    max_shift = inst.max_consecutive_shift.get(sid, 10**9)
+                    for run in runs_for_worker_positions(w, lambda s, sid=sid: s == sid):
+                        if run[2] < min_shift:
+                            out[w]['min'] += 1
+                        if run[2] > max_shift:
+                            out[w]['max'] += 1
+
+            return out
+        
+        def violation_day(self) -> Dict[int, int]:
+            """Return per-day counts of required-shift clause violations.
+
+            Only counts required-shift mismatches per day (one violation per
+            (day, shift_id) where actual != required). Does NOT include
+            sequence/min/max violations.
+
+            Returns dict: {day: int}
+            """
+            inst = self.instance
+            day_counts: Dict[int, int] = {d: 0 for d in range(inst.num_days)}
+
+            for sid, req in inst.required_number_of_shifts.items():
+                required_per_day = [req] * inst.num_days if isinstance(req, int) else list(req)
+                for d, required in enumerate(required_per_day):
+                    actual = sum(1 for w in range(inst.num_workers) if self.assignment[d][w] == sid)
+                    if actual != required:
+                        day_counts[d] += 1
+
+            return day_counts
+
+        def violation_totals(self) -> Dict[str, int]:
+            """Return total number of violated clauses per bucket.
+
+            Buckets: 'sequence' (forbidden adj/3-shift patterns), 'min', 'max', 'required'.
+            """
+            return {
+                'sequence': self._count_forbidden_sequences(),
+                'min': self._count_min_violations(),
+                'max': self._count_max_violations(),
+                'required': self._count_required_shifts_violations(),
+            }
+
+
+@dataclass
+class rws_lns:
+    """Minimal LNS context linking an `RWS.Instance` with a current schedule.
+
+    This is a skeleton; replace the method bodies with your own LNS logic.
+    """
+    instance: "RWS.Instance"
+    incumbent: "RWS.Schedule"
+    contender: Optional["RWS.Schedule"] = None
+    features: Any = None
+    fixed_vars: Dict[Tuple[int, int], int] = field(default_factory=dict)
+
+    def mark_fixed(self, day: int, worker: int, shift: Optional[int] = None) -> None:
+        """Mark (day, worker) as fixed (skeleton implementation)."""
+        raise NotImplementedError
+
+    def clear_fixed(self) -> None:
+        """Clear fixed variable markers (skeleton implementation)."""
+        raise NotImplementedError
+
+    def destroy(self, k: int = 1, seed: Optional[int] = None) -> List[Tuple[int, int]]:
+        """Remove `k` entries from the working assignment (skeleton)."""
+        raise NotImplementedError
+
+    def repair(self) -> "RWS.Schedule":
+        """Repair the current working assignment and return a new schedule (skeleton)."""
+        raise NotImplementedError
+
 
 if __name__ == "__main__":
     # Minimal usage example
@@ -383,6 +607,8 @@ if __name__ == "__main__":
         forbidden_sequences=[(3, 1), (3, 3, 3)],  # N->D and N->N->D forbidden
         min_consecutive_shift={1: 1, 2: 1, 3: 1},
         max_consecutive_shift={1: 5, 2: 5, 3: 3},
+        max_consecutive_work=4,
+        max_consecutive_off=3,
         required_number_of_shifts={1: 1, 2: 1, 3: 1},  # D, A, N: 1 per day each (21 total)
         #time_off={0: {3}},
         #workdays={1: {0}},
@@ -391,15 +617,17 @@ if __name__ == "__main__":
     schedule = RWS.Schedule(
         instance=instance,
         assignment=[
-            [1, 2, 3, 0],
-            [2, 3, 0, 1],
-            [3, 1, 2, 0],
-            [0, 2, 3, 1],
-            [2, 0, 1, 3],
-            [3, 1, 0, 2],
-            [1, 3, 2, 0],
+            [3, 1, 0, 0],      # Day 0: required shift violation (A=0 instead of 1
+            [1, 3, 2, 0],      # Day 1: N->D violation for W0 (shift 3->1)
+            [1, 0, 1, 3],      # Day 2: required shift violation (D=2 instead of 1)
+            [0, 3, 0, 2],      # Day 3: required shift violation (N=2 instead of 1)
+            [1, 2, 3, 0],      # Day 4: valid
+            [2, 3, 1, 0],      # Day 5: valid
+            [3, 1, 2, 0],      # Day 6: valid
         ],
     )
 
     schedule.display_schedule()
     schedule.display_consecutive_workdays()
+    schedule.display_violations()
+
