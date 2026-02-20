@@ -1,10 +1,129 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from dataclasses import dataclass, field
+from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 # If performance becomes an issue, we can use numpy arrays for the assignment and consecutive counters, 
 # but for simplicity and readability we use lists of lists here.
+
+
+def _required_workers_from_lns(lns: "rws_lns") -> List[List[int]]:
+    """Build required_workers[day][shift] for shifts 1..s."""
+    inst = lns.instance
+    num_days = inst.num_days
+    num_shifts = len(inst.shift_names) - 1
+
+    required_workers = [[0 for _ in range(num_shifts)] for _ in range(num_days)]
+    for shift_id in range(1, num_shifts + 1):
+        req = inst.required_number_of_shifts.get(shift_id, 0)
+        if isinstance(req, int):
+            for day in range(num_days):
+                required_workers[day][shift_id - 1] = req
+        else:
+            for day in range(num_days):
+                required_workers[day][shift_id - 1] = req[day]
+    return required_workers
+
+
+def _max_min_lengths_from_lns(lns: "rws_lns") -> List[List[int]]:
+    """Build max_min_lengths[0..s+1,1..2] from instance bounds."""
+    inst = lns.instance
+    num_shifts = len(inst.shift_names) - 1
+    num_days = inst.num_days
+    rows: List[List[int]] = []
+    for shift_id in range(0, num_shifts + 2):
+        if shift_id == 0:
+            mn = inst.min_consecutive_off
+            mx = inst.max_consecutive_off
+        elif 1 <= shift_id <= num_shifts:
+            mn = inst.min_consecutive_shift.get(shift_id, 0)
+            mx = inst.max_consecutive_shift.get(shift_id, num_days)
+        else:
+            mn = inst.min_consecutive_work
+            mx = inst.max_consecutive_work
+        rows.append([mn, mx])
+    return rows
+
+
+def _fixed_vars_constraints_mzn(lns: "rws_lns") -> str:
+    """Generate MiniZinc constraints fixing selected (day, worker) shifts."""
+    lines: List[str] = []
+    for (day, worker), shift in sorted(lns.fixed_vars.items()):
+        # MiniZinc arrays are 1-based for worker/day in this model.
+        lines.append(f"constraint works[{worker + 1}, {day + 1}, {shift}] = 1;")
+    return "\n".join(lines)
+
+
+def solve_rws_lns(
+    lns: "rws_lns",
+    model_path: str | Path = "rws.mzn",
+    solver_name: str = "gecode",
+    timeout_seconds: int = 30,
+) -> Dict[str, Any]:
+    """Solve `rws.mzn` using data and fixed-variable constraints from an rws_lns object."""
+    from minizinc import Instance, Model, Solver
+
+    model_file = Path(model_path)
+    model = Model(str(model_file))
+
+    solver = Solver.lookup(solver_name)
+    mzn_instance = Instance(solver, model)
+
+    num_shifts = len(lns.instance.shift_names) - 1
+    mzn_instance["d"] = lns.instance.num_days
+    mzn_instance["n"] = lns.instance.num_workers
+    mzn_instance["s"] = num_shifts
+    mzn_instance["min_rest"] = lns.instance.min_consecutive_off
+    mzn_instance["max_rest"] = lns.instance.max_consecutive_off
+    mzn_instance["min_work"] = lns.instance.min_consecutive_work
+    mzn_instance["max_work"] = lns.instance.max_consecutive_work
+    mzn_instance["max_min_lengths"] = _max_min_lengths_from_lns(lns)
+    mzn_instance["required_workers"] = _required_workers_from_lns(lns)
+
+    fixed_constraints = _fixed_vars_constraints_mzn(lns)
+    if fixed_constraints:
+        mzn_instance.add_string(fixed_constraints)
+
+    start = perf_counter()
+    result = mzn_instance.solve(timeout=timedelta(seconds=timeout_seconds))
+    elapsed = perf_counter() - start
+
+    out: Dict[str, Any] = {
+        "status": str(result.status),
+        "solver": solver_name,
+        "model": str(model_file),
+        "solve_time_sec": elapsed,
+        "has_solution": result.status.has_solution(),
+    }
+
+    if result.status.has_solution():
+        out["solution"] = result.solution.__dict__
+    else:
+        out["solution"] = None
+    return out
+
+
+def _assignment_from_works(
+    works: Any, num_days: int, num_workers: int, num_shifts: int
+) -> List[List[int]]:
+    """Convert MiniZinc `works[w][d][shift]` solution into assignment[day][worker]."""
+    assignment = [[0 for _ in range(num_workers)] for _ in range(num_days)]
+    for worker in range(num_workers):
+        for day in range(num_days):
+            fixed_shift = None
+            for shift in range(num_shifts + 1):
+                if works[worker][day][shift] in (1, True):
+                    fixed_shift = shift
+                    break
+            if fixed_shift is None:
+                raise ValueError(
+                    f"no assigned shift in MiniZinc solution for day={day}, worker={worker}"
+                )
+            assignment[day][worker] = fixed_shift
+    return assignment
 
 class RWS:
     """Roster/Workforce Scheduling container.
@@ -122,19 +241,22 @@ class RWS:
     class Schedule:
         instance: "RWS.Instance"
         assignment: List[List[int]]
+        run_compatibility_check: bool = False
         cons_workdays: List[List[int]] = field(init=False)
         cons_offdays: List[List[int]] = field(init=False)
         cons_shiftdays: Dict[int, List[List[int]]] = field(init=False)
+        compatibility_issues: List[str] = field(init=False, default_factory=list)
 
         def __post_init__(self) -> None:
             self._validate_shape_and_domain()
-            # self._assert_compatibility()
             self.cons_workdays = self._compute_consecutive(lambda s: s != 0)
             self.cons_offdays = self._compute_consecutive(lambda s: s == 0)
             self.cons_shiftdays = {
                 shift_id: self._compute_consecutive(lambda s, sid=shift_id: s == sid)
                 for shift_id in range(len(self.instance.shift_names))
             }
+            if self.run_compatibility_check:
+                self.compatibility_issues = self.check_compatibility()
 
         def _validate_shape_and_domain(self) -> None:
             inst = self.instance
@@ -151,9 +273,11 @@ class RWS:
                             f"invalid shift id at day {day}, worker {worker}: {shift}"
                         )
 
-        def _assert_compatibility(self) -> None:
+        def check_compatibility(self) -> List[str]:
+            """Optional consistency check that reports issues without raising."""
             inst = self.instance
             forbidden = set(inst.forbidden_sequences)
+            issues: List[str] = []
 
             for worker in range(inst.num_workers):
                 # hard day requirements
@@ -179,7 +303,7 @@ class RWS:
                     cur_shift = self.assignment[day][worker]
                     # Check 2-tuples (global)
                     if (prev_shift, cur_shift) in forbidden:
-                        raise AssertionError(
+                        issues.append(
                             f"forbidden sequence for worker {worker}: "
                             f"day {prev_day}->{day}: {prev_shift}->{cur_shift}"
                         )
@@ -189,16 +313,20 @@ class RWS:
                         prev_prev_day = (day - 2) % inst.num_days
                         prev_prev_shift = self.assignment[prev_prev_day][worker]
                         if (prev_prev_shift, prev_shift, cur_shift) in forbidden:
-                            raise AssertionError(
+                            issues.append(
                                 f"forbidden 3-shift sequence for worker {worker}: "
                                 f"day {prev_prev_day}->{prev_day}->{day}: {prev_prev_shift}->{prev_shift}->{cur_shift}"
                             )
-
-            # consecutive constraints (global work/off and per shift)
-            self._assert_consecutive_constraints()
-            
-            # required number of shifts
-            self._assert_required_shifts()
+            min_viol = self._count_min_violations()
+            max_viol = self._count_max_violations()
+            req_viol = self._count_required_shifts_violations()
+            if min_viol > 0:
+                issues.append(f"minimum consecutive violations: {min_viol}")
+            if max_viol > 0:
+                issues.append(f"maximum consecutive violations: {max_viol}")
+            if req_viol > 0:
+                issues.append(f"required-shift violations: {req_viol}")
+            return issues
 
 
 
@@ -580,21 +708,56 @@ class rws_lns:
     features: Any = None
     fixed_vars: Dict[Tuple[int, int], int] = field(default_factory=dict)
 
-    def mark_fixed(self, day: int, worker: int, shift: Optional[int] = None) -> None:
-        """Mark (day, worker) as fixed (skeleton implementation)."""
-        raise NotImplementedError
 
-    def clear_fixed(self) -> None:
-        """Clear fixed variable markers (skeleton implementation)."""
-        raise NotImplementedError
+    # in the beginning treat all entries from the given schedule as fixed.
+    def __post_init__(self) -> None:
+        if not self.fixed_vars:
+            self.fixed_vars = {
+                (day, worker): self.incumbent.assignment[day][worker]
+                for day in range(self.instance.num_days)
+                for worker in range(self.instance.num_workers)
+            }
 
-    def destroy(self, k: int = 1, seed: Optional[int] = None) -> List[Tuple[int, int]]:
-        """Remove `k` entries from the working assignment (skeleton)."""
-        raise NotImplementedError
+    def destroy_worker(self, worker: int) -> List[Tuple[int, int]]:
+        """Free all fixed variables for a given worker."""
+        if not (0 <= worker < self.instance.num_workers):
+            raise ValueError(
+                f"invalid worker id {worker}; expected in [0, {self.instance.num_workers - 1}]"
+            )
+        freed = [key for key in self.fixed_vars if key[1] == worker]
+        for key in freed:
+            del self.fixed_vars[key]
+        return freed
+
+    def destroy_day(self, day: int) -> List[Tuple[int, int]]:
+        """Free all fixed variables for a given day."""
+        if not (0 <= day < self.instance.num_days):
+            raise ValueError(f"invalid day {day}; expected in [0, {self.instance.num_days - 1}]")
+        freed = [key for key in self.fixed_vars if key[0] == day]
+        for key in freed:
+            del self.fixed_vars[key]
+        return freed
+
 
     def repair(self) -> "RWS.Schedule":
-        """Repair the current working assignment and return a new schedule (skeleton)."""
-        raise NotImplementedError
+        """Repair by solving the MiniZinc subproblem induced by current fixed_vars."""
+        model_path = Path(__file__).resolve().parent / "rws.mzn"
+        solve_summary = solve_rws_lns(self, model_path=model_path)
+        solution = solve_summary.get("solution")
+        if not solve_summary.get("has_solution") or solution is None:
+            raise RuntimeError(f"MiniZinc repair failed with status: {solve_summary['status']}")
+        if "works" not in solution:
+            raise RuntimeError("MiniZinc solution does not expose `works` variable")
+
+        num_shifts = len(self.instance.shift_names) - 1
+        assignment = _assignment_from_works(
+            works=solution["works"],
+            num_days=self.instance.num_days,
+            num_workers=self.instance.num_workers,
+            num_shifts=num_shifts,
+        )
+        self.contender = RWS.Schedule(instance=self.instance, assignment=assignment)
+        return self.contender
 
 
 if __name__ == "__main__":
@@ -630,4 +793,3 @@ if __name__ == "__main__":
     schedule.display_schedule()
     schedule.display_consecutive_workdays()
     schedule.display_violations()
-
