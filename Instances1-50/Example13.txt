@@ -1,0 +1,33 @@
+#Length of the schedule
+7
+
+#Number of Employees
+24
+
+##Number of Shifts
+3
+
+# Temporal Requirements Matrix
+10 11 9 12 10 11 6
+6 6 7 4	6 6 7
+0 0 0 2	0 1 0
+
+#ShiftName, Start, Length, Name, MinlengthOfBlocks, MaxLengthOfBlocks
+D  360 480 2 6
+A  840 480 2 5
+N  1320 480 1 4
+
+# Minimum and maximum length of days-off blocks 
+2 4
+
+# Minimum and maximum length of work blocks
+3 7
+
+# Number of not allowed shift sequences: NrSequencesOfLength2, NrSequencesOfLength3: 
+3 0
+
+# Not allowed shift sequences 
+N D 
+N A 
+A D 
+

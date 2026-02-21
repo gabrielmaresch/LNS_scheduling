@@ -1,31 +1,31 @@
 % Rotating  Workforce Scheduling Problem
 
-% int: d=7; %number of days to be scheduled
 int: d; %number of days to be scheduled
 set of int: days = 1..d;
 
-% int: n=12; %number of workers
 int: n; %number of workers
 set of int: workers = 1..n;
 
-% int: s = 3; %number of shifts
 int: s; %number of shifts
 set of int: shifts = 1..s; %1: day, 2: afternoon, 3: night, 0: off
 
 
-% array[0..s+1, 1..2] of int: max_min_lengths = array2d(0..s+1, 1..2,[1,3,2,5,2,5,2,4,2,5]);
 array[0..s+1, 1..2] of int: max_min_lengths;
-% min max for free, day, afternoon, night total 
+% min max for free, day, afternoon, night total
 
-% int: min_rest = 1;
-% int: max_rest = 3;
 int: min_rest;
 int: max_rest;
 
-% int: min_work = 2;
-% int: max_work = 6;
 int: min_work;
 int: max_work;
+bool: cyclic;
+
+int: num_forbidden_sequences;
+% Row width is fixed at 3 (max supported forbidden-sequence length).
+% The first index selects the sequence; the second index selects its position in the tuple.
+array[1..num_forbidden_sequences] of int: forbidden_sequence_lengths;
+% For length-2 sequences, the 3rd entry is padding (0) and ignored via forbidden_sequence_lengths.
+array[1..num_forbidden_sequences, 1..3] of int: forbidden_sequences;
 
 
 function int: next_day(int: day) = if day = d then 1 else day + 1 endif;
@@ -37,7 +37,6 @@ function int: prev_day(int: day) = if day = 1 then d else day - 1 endif;
 
 %required workers for shift s' on day d'
 
-% array[1..d, 1..s] of int: required_workers = array2d(1..d, 1..s, [3 | i in 1..d, j in 1..s]);
 array[1..d, 1..s] of int: required_workers;
 
 
@@ -49,10 +48,19 @@ constraint assert(
    );
 
 % Decision variable
-array[1..n, 1..d, 0..s] of var 0..1: works; % worker n' works shift s' on day d'
+array[1..n, 1..d] of var 0..s: shift_of; % shift index for worker/day (0 = off)
+
+int: num_fixed_assignments;
+% Each fixed assignment row is a triple: [worker, day, shift].
+% The 1..3 index is tuple width, not number of assignments.
+array[1..num_fixed_assignments, 1..3] of int: fixed_assignments;
+
+constraint forall(i in 1..num_fixed_assignments)(
+  shift_of[fixed_assignments[i, 1], fixed_assignments[i, 2]] = fixed_assignments[i, 3]
+);
 
 constraint forall(worker in workers)(
-  sum(day in days)(works[worker, day, 0]) >= 1
+  sum(day in days)(bool2int(shift_of[worker, day] = 0)) >= 1
 );
 
 % Auxilary variable: On day d', how many consecutive days has worker n' already worked
@@ -68,22 +76,23 @@ array[1..n, 0..s] of var 0..d: slack_shifts_min;
 array[1..n, 0..s] of var 0..d: slack_shifts_max;
 array[1..d, 1..s] of var 0..n: slack_required_min;
 array[1..d, 1..s] of var 0..n: slack_required_max;
+var int: slack_forbidden_total;
+constraint slack_forbidden_total >= 0;
 
 % Consecutive run length per exact shift (including 0 = off)
 array[1..n, 1..d, 0..s] of var 0..d: shift_length_until;
 
- 
-%%% lenght of consecutive workdays 
+
+%%% lenght of consecutive workdays
 constraint
   forall(worker in workers)(
-    work_length_until[worker,1] =
-      max(shift in shifts)(works[worker,1,shift])
+    work_length_until[worker,1] = bool2int(shift_of[worker,1] > 0)
   );
 
 constraint
   forall(worker in workers, day in 2..d)(
     work_length_until[worker,day] =
-      if max(shift in shifts)(works[worker,day,shift]) = 1 then
+      if shift_of[worker,day] > 0 then
         work_length_until[worker,day-1] + 1
       else
         0
@@ -94,7 +103,7 @@ array[1..n, 1..d] of var 0..d: work_length_cyclic;
 
 constraint forall(worker in workers)(
   work_length_cyclic[worker, 1] =
-    if (works[worker, 1, 0] = 0 /\ works[worker, d, 0] = 0) then
+    if (shift_of[worker, 1] > 0 /\ shift_of[worker, d] > 0) then
       work_length_until[worker,d] + 1
     else
       0
@@ -104,24 +113,24 @@ constraint forall(worker in workers)(
 constraint
   forall(worker in workers, day in 2..d)(
     work_length_cyclic[worker,day] =
-      if works[worker,day, 0] = 0 then
+      if shift_of[worker,day] > 0 then
         work_length_cyclic[worker,day-1] + 1
       else
         0
       endif
   );
-  
+
 
 %%% lenght of consecutive restdays
 constraint
   forall(worker in workers)(
-    rest_length_until[worker,1] = works[worker, 1, 0]
+    rest_length_until[worker,1] = bool2int(shift_of[worker, 1] = 0)
   );
 
 constraint
   forall(worker in workers, day in 2..d)(
     rest_length_until[worker,day] =
-      if works[worker,day,0] = 1 then
+      if shift_of[worker,day] = 0 then
         rest_length_until[worker,day-1] + 1
       else
         0
@@ -130,38 +139,34 @@ constraint
 
 constraint
   forall(worker in workers, shift in 0..s)(
-    shift_length_until[worker,1,shift] = works[worker,1,shift]
+    shift_length_until[worker,1,shift] = bool2int(shift_of[worker,1] = shift)
   );
 
 constraint
   forall(worker in workers, day in 2..d, shift in 0..s)(
     shift_length_until[worker,day,shift] =
-      if works[worker,day,shift] = 1 then
+      if shift_of[worker,day] = shift then
         shift_length_until[worker,day-1,shift] + 1
       else
         0
       endif
   );
-  
+
 % min and max worklength constraints
 constraint forall(worker in workers)(
   max(day in days)(work_length_cyclic[worker, day]) <= max_work + slack_work_max[worker]
 );
-%cyclicity
-%constraint forall(worker in workers)(
-%);
-
 
 constraint forall(worker in workers)(
-  if exists(day in 1..d-1)(works[worker, day, 0] = 0  /\  works[worker, day + 1, 0] = 1) then
-    min(day in 1..d-1 where works[worker, day, 0] = 0  /\ works[worker, day + 1, 0] = 1)( % day is last working day
+  if exists(day in 1..d-1)(shift_of[worker, day] > 0  /\  shift_of[worker, day + 1] = 0) then
+    min(day in 1..d-1 where shift_of[worker, day] > 0  /\ shift_of[worker, day + 1] = 0)( % day is last working day
    work_length_cyclic[worker, day]) + slack_work_min[worker] >= min_work
   else
     true
   endif
 );
 constraint forall(worker in workers)(  %last day check
-  if works[worker, d, 0] = 0 then
+  if shift_of[worker, d] > 0 then
     work_length_cyclic[worker, d] + slack_work_min[worker] >= min_work
   endif
 );
@@ -171,15 +176,15 @@ constraint forall(worker in workers)(
   max(day in days)(rest_length_until[worker, day]) <= max_rest + slack_rest_max[worker]
 );
 constraint forall(worker in workers)(
-  if exists(day in 1..d-1)(works[worker, day, 0] = 1  /\  works[worker, day + 1, 0] = 0) then
-    min(day in 1..d-1 where works[worker, day, 0] = 1  /\ works[worker, day + 1, 0] = 0)( % day is last rest
+  if exists(day in 1..d-1)(shift_of[worker, day] = 0  /\  shift_of[worker, day + 1] > 0) then
+    min(day in 1..d-1 where shift_of[worker, day] = 0  /\ shift_of[worker, day + 1] > 0)( % day is last rest
    rest_length_until[worker, day]) + slack_rest_min[worker] >= min_rest
   else
     true
   endif
 );
 constraint forall(worker in workers)(  %last day check
-  if works[worker, d, 0] = 1 then
+  if shift_of[worker, d] = 0 then
     rest_length_until[worker, d] + slack_rest_min[worker] >= min_rest
   endif
 );
@@ -191,8 +196,8 @@ constraint forall(worker in workers, shift in 0..s)(
 );
 
 constraint forall(worker in workers, shift in 0..s)(
-  if exists(day in 1..d-1)(works[worker, day, shift] = 1 /\ works[worker, day + 1, shift] = 0) then
-    min(day in 1..d-1 where works[worker, day, shift] = 1 /\ works[worker, day + 1, shift] = 0)(
+  if exists(day in 1..d-1)(shift_of[worker, day] = shift /\ shift_of[worker, day + 1] != shift) then
+    min(day in 1..d-1 where shift_of[worker, day] = shift /\ shift_of[worker, day + 1] != shift)(
       shift_length_until[worker, day, shift]
     ) + slack_shifts_min[worker, shift] >= max_min_lengths[shift, 1]
   else
@@ -201,7 +206,7 @@ constraint forall(worker in workers, shift in 0..s)(
 );
 
 constraint forall(worker in workers, shift in 0..s)(
-  if works[worker, d, shift] = 1 then
+  if shift_of[worker, d] = shift then
     shift_length_until[worker, d, shift] + slack_shifts_min[worker, shift] >= max_min_lengths[shift, 1]
   endif
 );
@@ -211,52 +216,53 @@ constraint forall(worker in workers, shift in 0..s)(
 
 % required number of shifts as soft constraints
 constraint forall(day in days, shift in shifts)(
-  sum(worker in workers)(works[worker, day, shift]) + slack_required_min[day, shift] >= required_workers[day, shift]
+  sum(worker in workers)(bool2int(shift_of[worker, day] = shift)) + slack_required_min[day, shift] >= required_workers[day, shift]
   /\
-  sum(worker in workers)(works[worker, day, shift]) - slack_required_max[day, shift] <= required_workers[day, shift]
+  sum(worker in workers)(bool2int(shift_of[worker, day] = shift)) - slack_required_max[day, shift] <= required_workers[day, shift]
   );
 
 
-% every worker can work only one shift per day
-constraint forall(worker in workers, day in days)(
-  sum(shift in 0..s)(works[worker, day, shift]) = 1
+constraint forall(i in 1..num_forbidden_sequences)(
+  forbidden_sequence_lengths[i] = 2 \/ forbidden_sequence_lengths[i] = 3
+);
+
+constraint slack_forbidden_total =
+  sum(seq_idx in 1..num_forbidden_sequences where forbidden_sequence_lengths[seq_idx] = 2)(
+    let {
+      int: a = forbidden_sequences[seq_idx, 1],
+      int: b = forbidden_sequences[seq_idx, 2]
+    } in
+    sum(worker in workers, day in days where cyclic \/ day < d)(
+      bool2int(
+        shift_of[worker, day] = a /\
+        shift_of[worker, if cyclic then next_day(day) else day + 1 endif] = b
+      )
+    )
+  )
+  +
+  sum(seq_idx in 1..num_forbidden_sequences where forbidden_sequence_lengths[seq_idx] = 3)(
+    let {
+      int: a = forbidden_sequences[seq_idx, 1],
+      int: b = forbidden_sequences[seq_idx, 2],
+      int: c = forbidden_sequences[seq_idx, 3]
+    } in
+    sum(worker in workers, day in days where cyclic \/ day < d - 1)(
+      bool2int(
+        shift_of[worker, day] = a /\
+        shift_of[worker, if cyclic then next_day(day) else day + 1 endif] = b /\
+        shift_of[worker, if cyclic then next_day(next_day(day)) else day + 2 endif] = c
+      )
+    )
   );
 
-%constraint forall(worker in workers)(
-%);
-
-
-
-%dont forget to take care of edge cases when schedule starts anew, sofar schedule isnt cyclic
-
-%% Forbidden 2 day sequences 
-%% ND and NA, AD
-%constraint forall(worker in workers, day in 1..d)(
-%  works[worker, day, 3] = 1 ->  (works[worker, next_day(day), 1] = 0 /\ works[worker, next_day(day), 2] = 0)
-%  );
-% for testing removed
-%constraint forall(worker in workers, day in 1..d)(
-%  works[worker, day, 2] = 1 ->  works[worker, next_day(day), 1] = 0
-%  );
- 
-
-%% for testing removed
-%% Forbidden 3 day sequences 
-%% N-D and N-A, A-D
-%constraint forall(worker in workers, day in 1..d)(
-%  works[worker, day, 3] = 1  /\ works[worker, next_day(day), 0] = 1->  (works[worker, next_day(next_day(day)), 1] = 0 /\ works[worker, day+2, 2] = 0 )
-%  ); 
-%constraint forall(worker in workers, day in 1..d)(
-%  works[worker, day, 2] = 1  /\ works[worker, next_day(day), 0] = 1->  works[worker, next_day(next_day(day)), 1] = 0
-%  ); 
- 
- 
- 
-solve minimize
+solve
+  :: int_search([shift_of[w, day] | w in workers, day in days], first_fail, indomain_min, complete)
+  minimize
   sum(worker in workers)(slack_work_min[worker] + slack_work_max[worker] + slack_rest_min[worker] + slack_rest_max[worker])
   + sum(worker in workers, shift in 0..s)(slack_shifts_min[worker, shift] + slack_shifts_max[worker, shift])
-  + sum(day in days, shift in shifts)(slack_required_min[day, shift] + slack_required_max[day, shift]);
- 
+  + sum(day in days, shift in shifts)(slack_required_min[day, shift] + slack_required_max[day, shift])
+  + slack_forbidden_total;
+
 %output [ show(d), " days\n\n"];
 %output [
 %  "Violations (slack totals):\n",
@@ -283,4 +289,4 @@ solve minimize
 %  ),
 %  "\n\n"
 %];
-%output [ "Worker " ++ show(w) ++ ":\t\t" ++ concat([ if fix(works[w,day,0]) = 1 then "-" else if fix(works[w,day,1]) = 1 then "D" else if fix(works[w,day,2]) = 1 then "A" else "N" endif endif endif | day in days ]) ++ "\n" | w in workers ];
+%output [ "Worker " ++ show(w) ++ ":\t\t" ++ concat([ if fix(shift_of[w,day]) = 0 then "-" else if fix(shift_of[w,day]) = 1 then "D" else if fix(shift_of[w,day]) = 2 then "A" else "N" endif endif endif | day in days ]) ++ "\n" | w in workers ];
