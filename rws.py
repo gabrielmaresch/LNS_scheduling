@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import timedelta
 from dataclasses import dataclass, field
 from pathlib import Path
-from time import perf_counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 # If performance becomes an issue, we can use numpy arrays for the assignment and consecutive counters, 
@@ -453,204 +452,197 @@ class rws_lns:
     contender: Optional["RWS.Schedule"] = None
     features: Any = None
     fixed_vars: Dict[Tuple[int, int], int] = field(default_factory=dict)
+    _cached_model_instance: Any = field(default=None, init=False, repr=False)
+    _cached_model_path: Optional[Path] = field(default=None, init=False, repr=False)
+    _cached_solver_name: Optional[str] = field(default=None, init=False, repr=False)
 
 
-    # in the beginning treat all entries from the given schedule as fixed.
+    def _initialize_fixed_vars(self, schedule: Optional["RWS.Schedule"] = None) -> None:
+        """(Re)initialize fixed vars from the provided schedule (default: incumbent)."""
+        src = self.incumbent if schedule is None else schedule
+        self.fixed_vars = {
+            (day, worker): src.assignment[day][worker]
+            for day in range(self.instance.num_days)
+            for worker in range(self.instance.num_workers)
+        }
+
     def __post_init__(self) -> None:
         if not self.fixed_vars:
-            self.fixed_vars = {
-                (day, worker): self.incumbent.assignment[day][worker]
-                for day in range(self.instance.num_days)
-                for worker in range(self.instance.num_workers)
-            }
+            self._initialize_fixed_vars()
 
-    def destroy_worker(self, worker: int) -> List[Tuple[int, int]]:
-        """Free all fixed variables for a given worker."""
-        if not (0 <= worker < self.instance.num_workers):
-            raise ValueError(
-                f"invalid worker id {worker}; expected in [0, {self.instance.num_workers - 1}]"
-            )
-        freed = [key for key in self.fixed_vars if key[1] == worker]
-        for key in freed:
-            del self.fixed_vars[key]
-        return freed
-
-    def destroy_day(self, day: int) -> List[Tuple[int, int]]:
-        """Free all fixed variables for a given day."""
-        if not (0 <= day < self.instance.num_days):
-            raise ValueError(f"invalid day {day}; expected in [0, {self.instance.num_days - 1}]")
-        freed = [key for key in self.fixed_vars if key[0] == day]
-        for key in freed:
-            del self.fixed_vars[key]
-        return freed
-
-
-    def repair(self) -> "RWS.Schedule":
-        """Repair by solving the MiniZinc subproblem induced by current fixed_vars."""
-        model_path = Path(__file__).resolve().parent / "rws.mzn"
-        solve_summary = solve_rws_lns(self, model_path=model_path)
-        solution = solve_summary.get("solution")
-        if not solve_summary.get("has_solution") or solution is None:
-            raise RuntimeError(f"MiniZinc repair failed with status: {solve_summary['status']}")
-        if "works" not in solution:
-            raise RuntimeError("MiniZinc solution does not expose `works` variable")
-
-        num_shifts = len(self.instance.shift_names) - 1
-        assignment = _assignment_from_works(
-            works=solution["works"],
-            num_days=self.instance.num_days,
-            num_workers=self.instance.num_workers,
-            num_shifts=num_shifts,
-        )
-        self.contender = RWS.Schedule(instance=self.instance, assignment=assignment)
-        return self.contender
-
-
-def _required_workers_from_lns(lns: "rws_lns") -> List[List[int]]:
-    """Build required_workers[day][shift] for shifts 1..s."""
-    inst = lns.instance
-    num_days = inst.num_days
-    num_shifts = len(inst.shift_names) - 1
-
-    required_workers = [[0 for _ in range(num_shifts)] for _ in range(num_days)]
-    for shift_id in range(1, num_shifts + 1):
-        req = inst.required_number_of_shifts.get(shift_id, 0)
-        if isinstance(req, int):
-            for day in range(num_days):
-                required_workers[day][shift_id - 1] = req
-        else:
-            for day in range(num_days):
-                required_workers[day][shift_id - 1] = req[day]
-    return required_workers
-
-
-def _max_min_lengths_from_lns(lns: "rws_lns") -> List[List[int]]:
-    """Build max_min_lengths[0..s+1,1..2] from instance bounds."""
-    inst = lns.instance
-    num_shifts = len(inst.shift_names) - 1
-    num_days = inst.num_days
-    rows: List[List[int]] = []
-    for shift_id in range(0, num_shifts + 2):
-        if shift_id == 0:
-            mn = inst.min_consecutive_off
-            mx = inst.max_consecutive_off
-        elif 1 <= shift_id <= num_shifts:
-            mn = inst.min_consecutive_shift.get(shift_id, 0)
-            mx = inst.max_consecutive_shift.get(shift_id, num_days)
-        else:
-            mn = inst.min_consecutive_work
-            mx = inst.max_consecutive_work
-        rows.append([mn, mx])
-    return rows
-
-
-def _fixed_vars_constraints_mzn(lns: "rws_lns") -> str:
-    """Generate MiniZinc constraints fixing selected (day, worker) shifts."""
-    lines: List[str] = []
-    for (day, worker), shift in sorted(lns.fixed_vars.items()):
-        # MiniZinc arrays are 1-based for worker/day in this model.
-        lines.append(f"constraint works[{worker + 1}, {day + 1}, {shift}] = 1;")
-    return "\n".join(lines)
-
-
-def solve_rws_lns(
-    lns: "rws_lns",
-    model_path: str | Path = "rws.mzn",
-    solver_name: str = "gecode",
-    timeout_seconds: int = 30,
-) -> Dict[str, Any]:
-    """Solve `rws.mzn` using data and fixed-variable constraints from an rws_lns object."""
-    from minizinc import Instance, Model, Solver
-
-    model_file = Path(model_path)
-    model = Model(str(model_file))
-
-    solver = Solver.lookup(solver_name)
-    mzn_instance = Instance(solver, model)
-
-    num_shifts = len(lns.instance.shift_names) - 1
-    mzn_instance["d"] = lns.instance.num_days
-    mzn_instance["n"] = lns.instance.num_workers
-    mzn_instance["s"] = num_shifts
-    mzn_instance["min_rest"] = lns.instance.min_consecutive_off
-    mzn_instance["max_rest"] = lns.instance.max_consecutive_off
-    mzn_instance["min_work"] = lns.instance.min_consecutive_work
-    mzn_instance["max_work"] = lns.instance.max_consecutive_work
-    mzn_instance["max_min_lengths"] = _max_min_lengths_from_lns(lns)
-    mzn_instance["required_workers"] = _required_workers_from_lns(lns)
-
-    fixed_constraints = _fixed_vars_constraints_mzn(lns)
-    if fixed_constraints:
-        mzn_instance.add_string(fixed_constraints)
-
-    start = perf_counter()
-    result = mzn_instance.solve(timeout=timedelta(seconds=timeout_seconds))
-    elapsed = perf_counter() - start
-
-    out: Dict[str, Any] = {
-        "status": str(result.status),
-        "solver": solver_name,
-        "model": str(model_file),
-        "solve_time_sec": elapsed,
-        "has_solution": result.status.has_solution(),
-    }
-
-    if result.status.has_solution():
-        out["solution"] = result.solution.__dict__
-    else:
-        out["solution"] = None
-    return out
-
-
-def _assignment_from_works(
-    works: Any, num_days: int, num_workers: int, num_shifts: int
-) -> List[List[int]]:
-    """Convert MiniZinc `works[w][d][shift]` solution into assignment[day][worker]."""
-    assignment = [[0 for _ in range(num_workers)] for _ in range(num_days)]
-    for worker in range(num_workers):
-        for day in range(num_days):
-            fixed_shift = None
-            for shift in range(num_shifts + 1):
-                if works[worker][day][shift] in (1, True):
-                    fixed_shift = shift
-                    break
-            if fixed_shift is None:
+    def destroy_worker(self, worker: int | Iterable[int]) -> List[Tuple[int, int]]:
+        """Free all fixed variables for one or many workers."""
+        workers = {worker} if isinstance(worker, int) else set(worker)
+        if not workers:
+            return []
+        for worker_id in workers:
+            if not (0 <= worker_id < self.instance.num_workers):
                 raise ValueError(
-                    f"no assigned shift in MiniZinc solution for day={day}, worker={worker}"
+                    f"invalid worker id {worker_id}; expected in [0, {self.instance.num_workers - 1}]"
                 )
-            assignment[day][worker] = fixed_shift
-    return assignment
+        freed = [key for key in self.fixed_vars if key[1] in workers]
+        for key in freed:
+            del self.fixed_vars[key]
+        return freed
+
+    def destroy_day(self, day: int | Iterable[int]) -> List[Tuple[int, int]]:
+        """Free all fixed variables for one or many days."""
+        days = {day} if isinstance(day, int) else set(day)
+        if not days:
+            return []
+        for day_id in days:
+            if not (0 <= day_id < self.instance.num_days):
+                raise ValueError(f"invalid day {day_id}; expected in [0, {self.instance.num_days - 1}]")
+        freed = [key for key in self.fixed_vars if key[0] in days]
+        for key in freed:
+            del self.fixed_vars[key]
+        return freed
+
+    def repair_exact(
+        self,
+        model_instance: Any | None = None,
+        model_path: str | Path | None = None,
+        solver_name: str = "chuffed",
+        timeout_seconds: int = 30,
+    ) -> None:
+        """Run an exact MiniZinc repair and store the result in `self.contender`.
+
+        If `model_instance` is provided, it is reused directly; otherwise a new one
+        is built from `model_path` and `solver_name` and then cached for reuse.
+        """
+        from rws_mzk_pipeline import build_rws_model_instance, solve_rws_lns
+
+        if model_instance is None:
+            if model_path is None:
+                model_path = Path(__file__).resolve().parent / "rws_instance.mzn"
+            resolved_model_path = Path(model_path)
+            if not resolved_model_path.is_absolute():
+                resolved_model_path = Path(__file__).resolve().parent / resolved_model_path
+
+            if (
+                self._cached_model_instance is None
+                or self._cached_model_path != resolved_model_path
+                or self._cached_solver_name != solver_name
+            ):
+                self._cached_model_instance, _ = build_rws_model_instance(
+                    lns=self,
+                    model_path=resolved_model_path,
+                    solver_name=solver_name,
+                )
+                self._cached_model_path = resolved_model_path
+                self._cached_solver_name = solver_name
+
+            model_instance = self._cached_model_instance
+        else:
+            self._cached_model_instance = model_instance
+        summary = solve_rws_lns(
+            lns=self,
+            model_instance=model_instance,
+            timeout_seconds=timeout_seconds,
+        )
+        if not summary.get("has_solution") or self.contender is None:
+            raise RuntimeError(f"MiniZinc repair failed with status: {summary['status']}")
+
+        self._initialize_fixed_vars(self.contender)
+
+
+def _parse_id_list(raw: str) -> List[int]:
+    """Parse comma-separated integer IDs."""
+    values: List[int] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        values.append(int(token))
+    return values
 
 
 if __name__ == "__main__":
-    # Minimal usage example
-    instance = RWS.Instance(
-        num_days=7,
-        num_workers=4,
-        shift_names=["-", "D", "A", "N"],
+    from rws_mzk_pipeline import build_rws_model_instance, solve_rws_lns
+    from rws_instance_loader import load_instance_and_schedule
+
+    raw_example = input("Example number [1]: ").strip()
+    example_number = 1 if raw_example == "" else int(raw_example)
+    if example_number < 1:
+        raise ValueError("example number must be >= 1")
+
+    instance_path = (
+        Path(__file__).resolve().parent / "Instances1-50" / f"Example{example_number}.txt"
+    )
+    if not instance_path.exists():
+        raise FileNotFoundError(f"instance file not found: {instance_path}")
+
+    instance, schedule = load_instance_and_schedule(
+        file_path=instance_path,
         cyclicity=True,
-        forbidden_sequences=[(3, 1), (3, 3, 3)],  # N->D and N->N->D forbidden
-        min_consecutive_shift={1: 1, 2: 1, 3: 1},
-        max_consecutive_shift={1: 5, 2: 5, 3: 3},
-        max_consecutive_work=4,
-        max_consecutive_off=3,
-        required_number_of_shifts={1: 1, 2: 1, 3: 1},  # D, A, N: 1 per day each (21 total)
-        #time_off={0: {3}},
-        #workdays={1: {0}},
     )
+    print(f"Loaded instance: {instance_path}")
 
-    schedule = RWS.Schedule(
-        instance=instance,
-        assignment=[
-            [3, 1, 0, 0],      # Day 0: required shift violation (A=0 instead of 1
-            [1, 3, 2, 0],      # Day 1: N->D violation for W0 (shift 3->1)
-            [1, 0, 1, 3],      # Day 2: required shift violation (D=2 instead of 1)
-            [0, 3, 0, 2],      # Day 3: required shift violation (N=2 instead of 1)
-            [1, 2, 3, 0],      # Day 4: valid
-            [2, 3, 1, 0],      # Day 5: valid
-            [3, 1, 2, 0],      # Day 6: valid
-        ],
+    lns = rws_lns(instance=instance, incumbent=schedule)
+    solver_name = "chuffed"
+    timeout_seconds = 30
+    model_path = Path(__file__).resolve().parent / "rws_instance.mzn"
+    model_instance, _ = build_rws_model_instance(
+        lns=lns,
+        model_path=model_path,
+        solver_name=solver_name,
     )
+    run_idx = 1
 
-    schedule.display_schedule()
-    schedule.display_violations()
+    while True:
+        current_schedule = lns.contender if lns.contender is not None else lns.incumbent
+        before_totals = current_schedule.count_total_violations()
+        before_total = sum(before_totals.values())
+
+        print(f"\n=== LNS run {run_idx} ===")
+        print("Current schedule before destroy/repair:")
+        current_schedule.display_schedule()
+        current_schedule.display_violations()
+        print(f"Total violations before repair: {before_total} ({before_totals})")
+        print("Available destroy operators: worker, day")
+
+        selected_raw = input("Which destroy operators to apply? (comma-separated): ").strip().lower()
+        selected_ops = {op.strip() for op in selected_raw.split(",") if op.strip()}
+
+        if "worker" in selected_ops:
+            raw_workers = input(
+                f"Worker ids to destroy (comma-separated, 0..{instance.num_workers - 1}): "
+            ).strip()
+            worker_ids = _parse_id_list(raw_workers)
+            freed = lns.destroy_worker(worker_ids)
+            print(f"Destroyed worker vars: {len(freed)}")
+
+        if "day" in selected_ops:
+            raw_days = input(
+                f"Day ids to destroy (comma-separated, 0..{instance.num_days - 1}): "
+            ).strip()
+            day_ids = _parse_id_list(raw_days)
+            freed = lns.destroy_day(day_ids)
+            print(f"Destroyed day vars: {len(freed)}")
+
+        summary = solve_rws_lns(
+            lns=lns,
+            model_instance=model_instance,
+            timeout_seconds=timeout_seconds,
+        )
+        runtime = summary["solve_time_sec"]
+        if not summary.get("has_solution") or lns.contender is None:
+            raise RuntimeError(f"MiniZinc repair failed with status: {summary['status']}")
+        lns._initialize_fixed_vars(lns.contender)
+
+        after_totals = lns.contender.count_total_violations()
+        after_total = sum(after_totals.values())
+        delta = after_total - before_total
+
+        print("Schedule after repair:")
+        lns.contender.display_schedule()
+        lns.contender.display_violations()
+        print(f"Total violations after repair:  {after_total} ({after_totals})")
+        print(f"Total violation delta (after - before): {delta}")
+        print(f"Repair runtime: {runtime:.3f}s")
+
+        abort_raw = input("Abort further runs? [y/N]: ").strip().lower()
+        if abort_raw in {"y", "yes"}:
+            break
+
+        run_idx += 1
