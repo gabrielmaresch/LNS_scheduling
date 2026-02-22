@@ -495,10 +495,10 @@ class rws_lns:
     contender: Optional["RWS.Schedule"] = None
     features: Any = None
     fixed_vars: Dict[Tuple[int, int], int] = field(default_factory=dict)
-    _cached_model_instance: Any = field(default=None, init=False, repr=False)
-    _cached_model_path: Optional[Path] = field(default=None, init=False, repr=False)
-    _cached_solver_name: Optional[str] = field(default=None, init=False, repr=False)
-    _cached_sloppy: Optional[bool] = field(default=None, init=False, repr=False)
+    _cached_model_instances: Dict[Tuple[Path, str, bool], Any] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    _cached_instance_id: Optional[int] = field(default=None, init=False, repr=False)
 
 
     def _initialize_fixed_vars(self, schedule: Optional["RWS.Schedule"] = None) -> None:
@@ -512,6 +512,7 @@ class rws_lns:
 
     def __post_init__(self) -> None:
         """Initialize fixed variables from incumbent when no fixed set is provided."""
+        self._cached_instance_id = id(self.instance)
         if not self.fixed_vars:
             self._initialize_fixed_vars()
 
@@ -553,37 +554,37 @@ class rws_lns:
     ) -> None:
         """Run an exact MiniZinc repair and store the result in `self.contender`.
 
-        If `model_instance` is provided, it is reused directly; otherwise a new one
-        is built from `model_path` and `solver_name` and then cached for reuse.
+        Model instances are cached by `(model_path, solver_name, sloppy)` and the
+        cache is cleared automatically when the `instance` object changes.
+        If `model_instance` is provided explicitly, it is used directly and also
+        stored under the same cache key for future reuse.
         """
         from rws_mzk_pipeline import build_rws_model_instance, solve_rws_lns
 
-        if model_instance is None:
-            if model_path is None:
-                model_path = Path(__file__).resolve().parent / "rws_instance.mzn"
-            resolved_model_path = Path(model_path)
-            if not resolved_model_path.is_absolute():
-                resolved_model_path = Path(__file__).resolve().parent / resolved_model_path
+        current_instance_id = id(self.instance)
+        if self._cached_instance_id != current_instance_id:
+            self._cached_model_instances.clear()
+            self._cached_instance_id = current_instance_id
 
-            if (
-                self._cached_model_instance is None
-                or self._cached_model_path != resolved_model_path
-                or self._cached_solver_name != solver_name
-                or self._cached_sloppy != sloppy
-            ):
-                self._cached_model_instance, _ = build_rws_model_instance(
+        if model_path is None:
+            model_path = Path(__file__).resolve().parent / "rws_instance.mzn"
+        resolved_model_path = Path(model_path)
+        if not resolved_model_path.is_absolute():
+            resolved_model_path = Path(__file__).resolve().parent / resolved_model_path
+        cache_key = (resolved_model_path, solver_name, sloppy)
+
+        if model_instance is None:
+            model_instance = self._cached_model_instances.get(cache_key)
+            if model_instance is None:
+                model_instance, _ = build_rws_model_instance(
                     lns=self,
                     model_path=resolved_model_path,
                     solver_name=solver_name,
                     sloppy=sloppy,
                 )
-                self._cached_model_path = resolved_model_path
-                self._cached_solver_name = solver_name
-                self._cached_sloppy = sloppy
-
-            model_instance = self._cached_model_instance
+                self._cached_model_instances[cache_key] = model_instance
         else:
-            self._cached_model_instance = model_instance
+            self._cached_model_instances[cache_key] = model_instance
         summary = solve_rws_lns(
             lns=self,
             model_instance=model_instance,

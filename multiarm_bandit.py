@@ -35,12 +35,12 @@ class bandit:
     weights_destroy: Optional[Dict[str, float]] = None
     weights_repair: Optional[Dict[str, float]] = None
     iterations_till_weight_update: int = 10
-    reaction_factor: float = 0.2
+    reaction_factor: float = 0.15
     annealing_temperature: float = 5
     min_temperature: float = 0.7
     time_decay: float = 0.98
-    epsilon: float = 0.05
-    global_timeout_seconds: float = 150.0
+    epsilon: float = 0.02
+    global_timeout_seconds: float = 300.0
     model_path: str | Path | None = None
     solver_name: str = "chuffed"
     minizinc_timeout_seconds: int = 10
@@ -123,8 +123,8 @@ class bandit:
         if self.epsilon * len(self.repair_operators) > 1.0:
             raise ValueError("epsilon too large for number of repair operators")
         self.destroy_exploration_operator = _make_destroy_random_workers_and_days(
-            workers_fraction=0.15,
-            days_fraction=0.15,
+            workers_fraction=0.2,
+            days_fraction=0.1,
         )
         self.repair_exploration_operator = (
             lambda lns: lns.repair_exact(
@@ -474,6 +474,18 @@ class bandit:
             "destroyed_target_type": destroyed_target_type,
             "destroyed_target_ids": destroyed_target_ids,
         }
+
+    def final_push(self, k: int) -> None:
+        """TODO: Intensify repair when remaining conflicts drop below `k`."""
+        # TODO:
+        # - Trigger only if self.conflicts_current_solution < k.
+        # - Temporarily switch to stronger/slower repair operators (e.g. long timeout).
+        # - Restrict destroy neighborhoods to small focused moves around worst violations.
+        # - Accept only improving moves (or stricter SA) and stop on stagnation.
+        raise NotImplementedError("TODO: implement final_push")
+    # TODO: expand tabu length
+    # - Replace last_destroyed_* single-step memory with bounded FIFO history.
+    # - Compare new destroy signatures against the last L tabu entries.
     
 
 
@@ -606,6 +618,8 @@ if __name__ == "__main__":
     }
 
 
+    # TODO: add a "window" destroy operator that frees a k x l submatrix of shift_of
+    # (k workers by l consecutive days), ideally with random and worst-window variants.
     destroy_ops: Dict[str, Callable[[rws_lns], list[tuple[int, int]]]] = {
         "destroy_worst_workers_10pct": _make_destroy_worst_workers(0.10),
         "destroy_worst_workers_20pct": _make_destroy_worst_workers(0.20),
@@ -738,11 +752,13 @@ if __name__ == "__main__":
         )
         print("Final schedule:")
         mab.schedule.display_schedule()
-        mab.schedule.display_violations()
     elif timed_out:
         print(
             f"Timed out after {total_runtime:.3f}s at iteration {last_iteration}. "
             f"Current conflicts: {mab.conflicts_current_solution}"
         )
+        print("Last schedule:")
+        mab.schedule.display_schedule()
+        mab.schedule.display_violations()
 
     print(f"Wrote run log: {log_path}")
