@@ -3,7 +3,7 @@
 int: d = 7; %number of days to be scheduled
 set of int: days = 1..d;
 
-int: n = 17; %number of workers
+int: n = 163; %number of workers
 set of int: workers = 1..n;
 
 int: s = 3; %number of shifts
@@ -13,11 +13,11 @@ set of int: shifts = 1..s; %1: day, 2: afternoon, 3: night, 0: off
 array[0..s+1, 1..2] of int: max_min_lengths = array2d(0..4, 1..2, [0, 7, 0, 7, 0, 7, 0, 7, 0, 7]);
 % min max for free, day, afternoon, night total
 
-int: min_rest = 2;
+int: min_rest = 1;
 int: max_rest = 4;
 
-int: min_work = 4;
-int: max_work = 7;
+int: min_work = 3;
+int: max_work = 6;
 bool: cyclic = true;
 
 int: num_forbidden_sequences = 0;
@@ -37,7 +37,7 @@ function int: prev_day(int: day) = if day = 1 then d else day - 1 endif;
 
 %required workers for shift s' on day d'
 
-array[1..d, 1..s] of int: required_workers = array2d(1..7, 1..3, [5, 5, 4, 4, 4, 3, 4, 4, 3, 4, 4, 3, 4, 4, 4, 4, 4, 4, 3, 4, 4]);
+array[1..d, 1..s] of int: required_workers = array2d(1..7, 1..3, [72, 39, 5, 79, 40, 6, 80, 44, 5, 78, 43, 6, 82, 43, 6, 76, 38, 6, 74, 40, 5]);
 
 
 
