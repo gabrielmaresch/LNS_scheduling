@@ -16,6 +16,7 @@ def _default_score_function(
     number_of_conflicts_contender: int,
     temperature: float,
 ) -> int:
+    """Return a discrete ALNS score using best/current/contender conflicts and SA."""
     if number_of_conflicts_contender < number_of_conflicts_best:
         return 33
     elif number_of_conflicts_contender < number_of_conflicts_incumbent:
@@ -39,7 +40,7 @@ class bandit:
     min_temperature: float = 0.7
     time_decay: float = 0.98
     epsilon: float = 0.05
-    global_timeout_seconds: float = 300.0
+    global_timeout_seconds: float = 150.0
     model_path: str | Path | None = None
     solver_name: str = "chuffed"
     minizinc_timeout_seconds: int = 10
@@ -51,15 +52,19 @@ class bandit:
     warmstart_instance: Optional[RWS.Instance] = None  # Not used by the LNS object yet.
     destroy_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
     repair_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
+    destroy_exploration_operator: Callable[[rws_lns], list[tuple[int, int]]] = field(init=False, repr=False)
     repair_exploration_operator: Callable[[rws_lns], None] = field(init=False, repr=False)
     lns: rws_lns = field(init=False)
     lns_loop_counter: int = 0
     operator_score_sums: Dict[str, float] = field(init=False)
     operator_usage_counts: Dict[str, int] = field(init=False)
+    last_destroyed_workers: frozenset[int] = field(default_factory=frozenset, init=False, repr=False)
+    last_destroyed_days: frozenset[int] = field(default_factory=frozenset, init=False, repr=False)
     stagnation_rounds: int = 0
     tabu: bool = False
 
     def __post_init__(self) -> None:
+        """Validate configuration and initialize operators, weights, and LNS state."""
         if self.warmstart_instance is None:
             self.warmstart_instance = self.schedule.instance
 
@@ -117,6 +122,10 @@ class bandit:
             }
         if self.epsilon * len(self.repair_operators) > 1.0:
             raise ValueError("epsilon too large for number of repair operators")
+        self.destroy_exploration_operator = _make_destroy_random_workers_and_days(
+            workers_fraction=0.15,
+            days_fraction=0.15,
+        )
         self.repair_exploration_operator = (
             lambda lns: lns.repair_exact(
                 model_path=self.model_path,
@@ -136,6 +145,7 @@ class bandit:
         weights: Optional[Dict[str, float]],
         operators: Dict[str, Callable[..., Any]],
     ) -> Dict[str, float]:
+        """Initialize and normalize operator weights, or create equal defaults."""
         keys = list(operators.keys())
         if weights is None:
             equal = 1.0 / len(keys)
@@ -153,18 +163,97 @@ class bandit:
         return self._normalize_weights(normalized)
 
     def _choose_repair_operator(self) -> tuple[str, Callable[..., Any]]:
+        """Sample one repair operator according to current repair weights."""
         names = list(self.repair_operators.keys())
         probs = [self.weights_repair[name] for name in names]
         chosen = random.choices(names, weights=probs, k=1)[0]
         return chosen, self.repair_operators[chosen]
 
     def _choose_destroy_operator(self) -> tuple[str, Callable[..., Any]]:
+        """Sample one destroy operator according to current destroy weights."""
         names = list(self.destroy_operators.keys())
         probs = [self.weights_destroy[name] for name in names]
         chosen = random.choices(names, weights=probs, k=1)[0]
         return chosen, self.destroy_operators[chosen]
 
+    def _destroyed_id_sets(
+        self,
+        destroy_name: str,
+        destroyed_pairs: list[tuple[int, int]],
+        lns: rws_lns,
+        use_exploration: bool,
+    ) -> tuple[set[int], set[int]]:
+        """Extract targeted IDs for tabu checks from the current destroy move."""
+        if use_exploration:
+            workers = set(getattr(lns, "_last_destroy_selected_workers", []))
+            days = set(getattr(lns, "_last_destroy_selected_days", []))
+            return workers, days
+        if "worker" in destroy_name:
+            return {worker for _, worker in destroyed_pairs}, set()
+        if "day" in destroy_name:
+            return set(), {day for day, _ in destroyed_pairs}
+        workers = {worker for _, worker in destroyed_pairs}
+        days = {day for day, _ in destroyed_pairs}
+        return workers, days
+
+    def _is_subset_tabu(self, destroyed_workers: set[int], destroyed_days: set[int]) -> bool:
+        """Return True when current destroyed IDs are a subset of previous destroyed IDs."""
+        workers_subset = (
+            bool(destroyed_workers)
+            and bool(self.last_destroyed_workers)
+            and destroyed_workers.issubset(self.last_destroyed_workers)
+        )
+        days_subset = (
+            bool(destroyed_days)
+            and bool(self.last_destroyed_days)
+            and destroyed_days.issubset(self.last_destroyed_days)
+        )
+        return workers_subset or days_subset
+
+    def _choose_and_apply_destroy(
+        self,
+        lns: rws_lns,
+        use_exploration: bool,
+    ) -> tuple[str, list[tuple[int, int]], set[int], set[int]]:
+        """Apply a destroy move while avoiding immediate subset repetition of destroyed IDs."""
+        attempts = max(8, len(self.destroy_operators) * 3)
+        last_name = "destroy_exploration" if use_exploration else "destroy"
+        last_result: list[tuple[int, int]] = []
+        last_workers: set[int] = set()
+        last_days: set[int] = set()
+
+        for _ in range(attempts):
+            lns._initialize_fixed_vars(self.schedule)
+            if use_exploration:
+                destroy_name = "destroy_exploration"
+                destroy_op = self.destroy_exploration_operator
+            else:
+                destroy_name, destroy_op = self._choose_destroy_operator()
+
+            destroy_result = destroy_op(lns)
+            workers, days = self._destroyed_id_sets(
+                destroy_name=destroy_name,
+                destroyed_pairs=destroy_result,
+                lns=lns,
+                use_exploration=use_exploration,
+            )
+            if not self._is_subset_tabu(workers, days):
+                self.last_destroyed_workers = frozenset(workers)
+                self.last_destroyed_days = frozenset(days)
+                return destroy_name, destroy_result, workers, days
+
+            last_name = destroy_name
+            last_result = destroy_result
+            last_workers = workers
+            last_days = days
+
+        # Fallback: keep the last attempt if no non-subset destroy could be found.
+        self.last_destroyed_workers = frozenset(last_workers)
+        self.last_destroyed_days = frozenset(last_days)
+        return last_name, last_result, last_workers, last_days
+
     def _normalize_weights(self, weights: Dict[str, float]) -> Dict[str, float]:
+        """Normalize probabilities and enforce an epsilon lower bound per operator."""
         n = len(weights)
         if n == 0:
             return {}
@@ -196,21 +285,25 @@ class bandit:
         }
 
     def _operator_key(self, kind: str, name: str) -> str:
+        """Build the tracking key used for operator score/usage dictionaries."""
         return f"{kind}::{name}"
 
     def _initialize_operator_tracking(self) -> None:
+        """Initialize per-operator score and usage accumulators."""
         keys = [self._operator_key("destroy", name) for name in self.destroy_operators]
         keys.extend(self._operator_key("repair", name) for name in self.repair_operators)
         self.operator_score_sums = {key: 0.0 for key in keys}
         self.operator_usage_counts = {key: 0 for key in keys}
 
     def _reset_operator_tracking(self) -> None:
+        """Reset per-operator score and usage accumulators to zero."""
         for key in self.operator_score_sums:
             self.operator_score_sums[key] = 0.0
         for key in self.operator_usage_counts:
             self.operator_usage_counts[key] = 0
 
     def update_operator_weights(self) -> None:
+        """Update destroy/repair weights from tracked average scores and renormalize."""
         for name, old_weight in self.weights_destroy.items():
             key = self._operator_key("destroy", name)
             usage = self.operator_usage_counts.get(key, 0)
@@ -237,15 +330,14 @@ class bandit:
 
     
     def _perform_lns_step(self) -> Dict[str, Any]:
+        """Run one destroy/repair iteration and return metrics for logging/display."""
         self.lns_loop_counter += 1
         lns = self.lns
         lns.incumbent = self.schedule
         lns.contender = None
-        lns._initialize_fixed_vars(self.schedule)
 
         incumbent_conflicts = int(sum(self.schedule.count_total_violations().values()))
 
-        destroy_name, destroy_op = self._choose_destroy_operator()
         use_exploration = self.stagnation_rounds >= self.exploration_after_stagnation
         if use_exploration:
             repair_name = "repair_exploration"
@@ -266,10 +358,19 @@ class bandit:
             else {}
         )
 
-        destroy_result = destroy_op(lns)
-        destroyed_workers = sorted({worker for _, worker in destroy_result})
-        destroyed_days = sorted({day for day, _ in destroy_result})
-        if "worker" in destroy_name:
+        destroy_name, destroy_result, destroyed_workers_set, destroyed_days_set = self._choose_and_apply_destroy(
+            lns=lns,
+            use_exploration=use_exploration,
+        )
+        destroyed_workers = sorted(destroyed_workers_set)
+        destroyed_days = sorted(destroyed_days_set)
+        if use_exploration:
+            destroyed_target_type = "workers_and_days"
+            destroyed_target_ids = {
+                "workers": destroyed_workers,
+                "days": destroyed_days,
+            }
+        elif "worker" in destroy_name:
             destroyed_target_type = "workers"
             destroyed_target_ids = destroyed_workers
         elif "day" in destroy_name:
@@ -307,28 +408,31 @@ class bandit:
             self.min_temperature,
         )
         
-        destroy_key = self._operator_key("destroy", destroy_name)
-        repair_key = self._operator_key("repair", repair_name)
-        self.operator_score_sums[destroy_key] = (
-            self.operator_score_sums.get(destroy_key, 0.0) + float(contender_score)
-        )
-        self.operator_usage_counts[destroy_key] = (
-            self.operator_usage_counts.get(destroy_key, 0) + 1
-        )
-        self.operator_score_sums[repair_key] = (
-            self.operator_score_sums.get(repair_key, 0.0) + float(contender_score)
-        )
-        self.operator_usage_counts[repair_key] = (
-            self.operator_usage_counts.get(repair_key, 0) + 1
-        )
+        if not use_exploration:
+            destroy_key = self._operator_key("destroy", destroy_name)
+            repair_key = self._operator_key("repair", repair_name)
+            self.operator_score_sums[destroy_key] = (
+                self.operator_score_sums.get(destroy_key, 0.0) + float(contender_score)
+            )
+            self.operator_usage_counts[destroy_key] = (
+                self.operator_usage_counts.get(destroy_key, 0) + 1
+            )
+            self.operator_score_sums[repair_key] = (
+                self.operator_score_sums.get(repair_key, 0.0) + float(contender_score)
+            )
+            self.operator_usage_counts[repair_key] = (
+                self.operator_usage_counts.get(repair_key, 0) + 1
+            )
 
-        accepted = (not repair_failed) and contender_score > 2
+        accepted = (not repair_failed) and contender_score >= 3
         if accepted:
             self.schedule = lns.contender
             self.conflicts_current_solution = contender_conflicts
             if contender_conflicts < self.conflicts_best_solution:
                 self.conflicts_best_solution = contender_conflicts
-        if self.conflicts_current_solution < incumbent_conflicts:
+        if use_exploration:
+            self.stagnation_rounds = 0
+        elif self.conflicts_current_solution < incumbent_conflicts:
             self.stagnation_rounds = 0
         else:
             self.stagnation_rounds += 1
@@ -378,6 +482,7 @@ def _make_repair_operator(
 ) -> Callable[[rws_lns], None]:
     """Create a configured repair operator closure."""
     def _op(lns: rws_lns) -> None:
+        """Run exact MiniZinc repair with fixed solver/model/timeout settings."""
         lns.repair_exact(
             model_path=model_path,
             solver_name=solver_name,
@@ -387,23 +492,28 @@ def _make_repair_operator(
 
 
 def _current_schedule(lns: rws_lns) -> RWS.Schedule:
+    """Return contender when available, otherwise incumbent."""
     return lns.contender if lns.contender is not None else lns.incumbent
 
 
 def _ceil_fraction_count(total: int, fraction: float) -> int:
+    """Convert a fraction to a bounded ceiling count."""
     if fraction <= 0:
         return 0
     return min(total, math.ceil(total * fraction))
 
 
 def _take_ranked_ids(ranked: Dict[int, int], k: int) -> list[int]:
+    """Take the first k IDs from a ranked ID->score mapping."""
     if k <= 0:
         return []
     return list(ranked.keys())[:k]
 
 
 def _make_destroy_worst_workers(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    """Build a destroy op that frees the worst workers by violation ranking."""
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        """Destroy assignments for the current worst-ranked workers."""
         schedule = _current_schedule(lns)
         k = _ceil_fraction_count(lns.instance.num_workers, fraction)
         worker_ids = _take_ranked_ids(schedule.worker_ranked_by_violations, k)
@@ -412,7 +522,9 @@ def _make_destroy_worst_workers(fraction: float) -> Callable[[rws_lns], list[tup
 
 
 def _make_destroy_worst_days(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    """Build a destroy op that frees the worst days by violation ranking."""
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        """Destroy assignments for the current worst-ranked days."""
         schedule = _current_schedule(lns)
         k = _ceil_fraction_count(lns.instance.num_days, fraction)
         day_ids = _take_ranked_ids(schedule.days_ranked_by_violations, k)
@@ -421,7 +533,9 @@ def _make_destroy_worst_days(fraction: float) -> Callable[[rws_lns], list[tuple[
 
 
 def _make_destroy_random_workers(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    """Build a destroy op that frees a random subset of workers."""
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        """Destroy assignments for randomly selected workers."""
         k = _ceil_fraction_count(lns.instance.num_workers, fraction)
         if k <= 0:
             return []
@@ -431,12 +545,39 @@ def _make_destroy_random_workers(fraction: float) -> Callable[[rws_lns], list[tu
 
 
 def _make_destroy_random_days(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    """Build a destroy op that frees a random subset of days."""
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        """Destroy assignments for randomly selected days."""
         k = _ceil_fraction_count(lns.instance.num_days, fraction)
         if k <= 0:
             return []
         day_ids = random.sample(range(lns.instance.num_days), k)
         return lns.destroy_day(day_ids)
+    return _op
+
+
+def _make_destroy_random_workers_and_days(
+    workers_fraction: float,
+    days_fraction: float,
+) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    """Build a destroy op that frees random workers and random days in one move."""
+    def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        """Destroy assignments from both random worker and random day selections."""
+        destroyed: list[tuple[int, int]] = []
+        selected_workers: list[int] = []
+        selected_days: list[int] = []
+        workers_k = _ceil_fraction_count(lns.instance.num_workers, workers_fraction)
+        if workers_k > 0:
+            selected_workers = random.sample(range(lns.instance.num_workers), workers_k)
+            destroyed.extend(lns.destroy_worker(selected_workers))
+        days_k = _ceil_fraction_count(lns.instance.num_days, days_fraction)
+        if days_k > 0:
+            selected_days = random.sample(range(lns.instance.num_days), days_k)
+            destroyed.extend(lns.destroy_day(selected_days))
+        lns._last_destroy_selected_workers = selected_workers
+        lns._last_destroy_selected_days = selected_days
+        return destroyed
+
     return _op
 
 
@@ -497,6 +638,9 @@ if __name__ == "__main__":
     solved = False
     last_iteration = 0
     log_lines: list[str] = []
+    ANSI_GREEN = "\033[32m"
+    ANSI_PURPLE = "\033[35m"
+    ANSI_RESET = "\033[0m"
 
     while True:
         elapsed_before = perf_counter() - loop_start
@@ -520,7 +664,13 @@ if __name__ == "__main__":
         )
         if step["repair_failed"]:
             summary_line += " repair_failed"
-        print(summary_line)
+        is_improvement = step["contender_conflicts"] < step["incumbent_conflicts"]
+        if is_improvement:
+            print(f"{ANSI_GREEN}{summary_line}{ANSI_RESET}")
+        elif step["used_exploration"]:
+            print(f"{ANSI_PURPLE}{summary_line}{ANSI_RESET}")
+        else:
+            print(summary_line)
         log_lines.append(
             (
                 f"iter={step['iteration']} "

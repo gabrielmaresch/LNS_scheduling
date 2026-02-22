@@ -7,6 +7,7 @@ from rws import RWS
 
 
 def _find_header_index(lines: Sequence[str], needle: str, start_idx: int = 0) -> int:
+    """Return index of the next comment header containing the target text."""
     needle_lc = needle.lower()
     for idx in range(start_idx, len(lines)):
         line = lines[idx]
@@ -17,6 +18,7 @@ def _find_header_index(lines: Sequence[str], needle: str, start_idx: int = 0) ->
 
 
 def _next_data_line(lines: Sequence[str], start_idx: int) -> Tuple[int, str]:
+    """Return the next non-empty, non-comment line after `start_idx`."""
     for idx in range(start_idx + 1, len(lines)):
         text = lines[idx].strip()
         if text and not text.startswith("#"):
@@ -25,6 +27,7 @@ def _next_data_line(lines: Sequence[str], start_idx: int) -> Tuple[int, str]:
 
 
 def _parse_int_row(line: str) -> List[int]:
+    """Parse one whitespace-separated integer row."""
     return [int(token) for token in line.split()]
 
 
@@ -150,6 +153,7 @@ def initialize_schedule(instance: RWS.Instance) -> RWS.Schedule:
 
 
 def load_instance_and_schedule(file_path: str | Path, cyclicity: bool = True) -> Tuple[RWS.Instance, RWS.Schedule]:
+    """Parse an instance file and build its default initial schedule."""
     instance = parse_instance_file(file_path=file_path, cyclicity=cyclicity)
     schedule = initialize_schedule(instance)
     return instance, schedule

@@ -97,16 +97,19 @@ def _forbidden_sequence_arrays_from_lns(lns: "rws_lns") -> tuple[List[int], List
 def _array2d_literal(
     row_lb: int, row_ub: int, col_lb: int, col_ub: int, values: List[List[int]]
 ) -> str:
+    """Render a MiniZinc `array2d(...)` literal from nested Python lists."""
     flat = ", ".join(str(v) for row in values for v in row)
     return f"array2d({row_lb}..{row_ub}, {col_lb}..{col_ub}, [{flat}])"
 
 
 def _array1d_literal(lb: int, ub: int, values: List[int]) -> str:
+    """Render a MiniZinc `array1d(...)` literal from a Python list."""
     flat = ", ".join(str(v) for v in values)
     return f"array1d({lb}..{ub}, [{flat}])"
 
 
 def _replace_once(text: str, pattern: str, replacement: str) -> str:
+    """Replace one regex match and raise error if pattern is not found exactly once."""
     updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
     if count != 1:
         raise ValueError(f"Could not replace pattern in model: {pattern}")

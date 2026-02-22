@@ -37,6 +37,7 @@ class RWS:
         #workdays: Dict[int, Iterable[int]] = field(default_factory=dict)
 
         def __post_init__(self) -> None:
+            """Validate instance dimensions, bounds, shift IDs, and input arrays."""
             if self.num_days <= 0:
                 raise ValueError("num_days must be > 0")
             if self.num_workers <= 0:
@@ -109,14 +110,17 @@ class RWS:
             #    self._check_days(days)
 
         def _check_shift_id(self, shift_id: int, max_shift: int) -> None:
+            """Validate that a shift ID lies in the allowed [0, max_shift] range."""
             if not (0 <= shift_id <= max_shift):
                 raise ValueError(f"invalid shift id {shift_id}; expected in [0, {max_shift}]")
 
         def _check_worker(self, worker: int) -> None:
+            """Validate that a worker ID lies in the allowed worker range."""
             if not (0 <= worker < self.num_workers):
                 raise ValueError(f"invalid worker id {worker}; expected in [0, {self.num_workers - 1}]")
 
         def _check_days(self, days: Iterable[int]) -> None:
+            """Validate that each day index lies in the allowed day range."""
             for d in days:
                 if not (0 <= d < self.num_days):
                     raise ValueError(f"invalid day {d}; expected in [0, {self.num_days - 1}]")
@@ -131,6 +135,7 @@ class RWS:
         days_ranked_by_violations: Dict[int, int] = field(init=False, default_factory=dict)
 
         def __post_init__(self) -> None:
+            """Validate assignment and precompute compatibility and violation rankings."""
             self._check_admissibility()
             summary = self.detect_all_violations()
             self._refresh_ranked_violations(summary)
@@ -138,6 +143,7 @@ class RWS:
                 self.compatibility_issues = self.check_compatibility(summary=summary)
 
         def _check_admissibility(self) -> None:
+            """Assert assignment matrix shape and shift values fit the instance."""
             inst = self.instance
             if len(self.assignment) != inst.num_days:
                 raise AssertionError("assignment must contain one row per day")
@@ -505,6 +511,7 @@ class rws_lns:
         }
 
     def __post_init__(self) -> None:
+        """Initialize fixed variables from incumbent when no fixed set is provided."""
         if not self.fixed_vars:
             self._initialize_fixed_vars()
 
@@ -589,7 +596,7 @@ class rws_lns:
 
 
 def _parse_id_list(raw: str) -> List[int]:
-    """Parse comma-separated integer IDs."""
+    """Parse comma-separated integer IDs for main"""
     values: List[int] = []
     for token in raw.split(","):
         token = token.strip()
