@@ -173,4 +173,4 @@ if __name__ == "__main__":
     )
     print(f"Loaded: {instance_path}")
     schedule.display_schedule()
-    schedule.display_violations()
+    schedule.display_violations(totals_only=True)

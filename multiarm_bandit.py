@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, Optional
 from rws import RWS, rws_lns
 
 
+
 def _default_score_function(schedule: RWS.Schedule) -> float:
     """Higher is better; fewer violations gives a larger score."""
     totals = schedule.count_total_violations()
@@ -19,16 +20,17 @@ class bandit:
     """Configuration and operator container for a multiarm-bandit LNS loop."""
 
     schedule: RWS.Schedule
-    weight_vector: Optional[list[float]] = None
+    weights_destroy: Optional[Dict[str, float]] = None
+    weights_repair: Optional[Dict[str, float]] = None
     iterations_till_weight_update: int = 1
     model_path: str | Path = field(
         default_factory=lambda: Path(__file__).resolve().parent / "rws_generic.mzn"
     )
     solver_name: str = "chuffed"
-    minizinc_timeout_seconds: float = 5
-    exploratory_timeout_seconds: float = 30
+    minizinc_timeout_seconds: float = 1
+    exploratory_timeout_seconds: float = 20
     good_enough_threshold: float = 0.0
-    score_function: Callable[[RWS.Schedule], float] = _default_score_function
+    score_function: Callable[rws_lns, float] = _default_score_function
     warmstart_instance: Optional[RWS.Instance] = None
     destroy_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
     repair_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
@@ -50,27 +52,17 @@ class bandit:
                 "destroy_worker": lambda lns, worker: lns.destroy_worker(worker),
                 "destroy_day": lambda lns, day: lns.destroy_day(day),
             }
-        num_destroy_ops = len(self.destroy_operators)
-        if num_destroy_ops == 0:
+        if len(self.destroy_operators) == 0:
             raise ValueError("destroy_operators must contain at least one operator")
-
-        if self.weight_vector is None:
-            self.weight_vector = [1.0/num_destroy_ops] * num_destroy_ops
-        else:
-            if len(self.weight_vector) != num_destroy_ops:
-                raise ValueError(
-                    "weight_vector length must match number of destroy operators "
-                    f"({num_destroy_ops})"
-                )
-            for weight in self.weight_vector:
-                if not isinstance(weight, (int, float)):
-                    raise TypeError("weight_vector entries must be numeric")
-                if weight <= 0:
-                    raise ValueError("weight_vector must contain only positive floats")
 
         # Standard/default repair delegates to rws_lns.repair_exact.
         if not self.repair_operators:
             self.repair_operators = {"repair_exact": rws_lns.repair_exact}
+        if len(self.repair_operators) == 0:
+            raise ValueError("repair_operators must contain at least one operator")
+
+        self.weights_destroy = self._init_weights(self.weights_destroy, self.destroy_operators)
+        self.weights_repair = self._init_weights(self.weights_repair, self.repair_operators)
 
     def build_lns(self) -> rws_lns:
         return rws_lns(instance=self.warmstart_instance, incumbent=self.schedule)
@@ -81,16 +73,50 @@ class bandit:
     def is_good_enough(self, schedule: Optional[RWS.Schedule] = None) -> bool:
         return self.score(schedule) >= self.good_enough_threshold
 
+    def _init_weights(
+        self,
+        weights: Optional[Dict[str, float]],
+        operators: Dict[str, Callable[..., Any]],
+    ) -> Dict[str, float]:
+        keys = list(operators.keys())
+        if weights is None:
+            equal = 1.0 / len(keys)
+            return {key: equal for key in keys}
+
+        if set(weights.keys()) != set(keys):
+            raise ValueError("weight keys must match operator keys")
+
+        for key, value in weights.items():
+            if not isinstance(value, (int, float)) or value <= 0:
+                raise ValueError(f"weight for {key!r} must be a positive number")
+
+        total = float(sum(weights.values()))
+        return {key: float(weights[key]) / total for key in keys}
+
+    def _choose_repair_operator(self) -> Callable[..., Any]:
+        names = list(self.repair_operators.keys())
+        probs = [self.weights_repair[name] for name in names]
+        chosen = random.choices(names, weights=probs, k=1)[0]
+        return self.repair_operators[chosen]
+
+    def _choose_destroy_operator(self) -> Callable[..., Any]:
+        names = list(self.destroy_operators.keys())
+        probs = [self.weights_destroy[name] for name in names]
+        chosen = random.choices(names, weights=probs, k=1)[0]
+        return self.destroy_operators[chosen]
+
+    def _perform_lns_step:
+    
+
 
 def _make_repair_operator(
-    model_path: Path, solver_name: str, sloppy: bool, timeout_seconds: int
+    model_path: Path, solver_name: str, timeout_seconds: int
 ) -> Callable[[rws_lns], None]:
     """Create a configured repair operator closure."""
     def _op(lns: rws_lns) -> None:
         lns.repair_exact(
             model_path=model_path,
             solver_name=solver_name,
-            sloppy=sloppy,
             timeout_seconds=timeout_seconds,
         )
     return _op
@@ -148,6 +174,7 @@ def _make_destroy_random_days(fraction: float) -> Callable[[rws_lns], list[tuple
     return _op
 
 
+
 if __name__ == "__main__":
     from rws_instance_loader import load_instance_and_schedule
 
@@ -157,13 +184,13 @@ if __name__ == "__main__":
 
     model_path = base / "rws_instance.mzn"
     repair_ops: Dict[str, Callable[[rws_lns], None]] = {
-        "repair_chuffed_sloppy_1s": _make_repair_operator(model_path, "chuffed", True, 1),
-        "repair_chuffed_full_1s": _make_repair_operator(model_path, "chuffed", False, 1),
-        "repair_gecode_sloppy_1s": _make_repair_operator(model_path, "gecode", True, 1),
-        "repair_gecode_full_1s": _make_repair_operator(model_path, "gecode", False, 1),
-        "repair_chuffed_full_20s": _make_repair_operator(model_path, "chuffed", False, 20),
-        "repair_gecode_full_20s": _make_repair_operator(model_path, "gecode", False, 20),
+        "repair_chuffed_fast": _make_repair_operator(model_path, "chuffed", 1),
+        "repair_gecode_fast": _make_repair_operator(model_path, "gecode", 1),
+        "repair_chuffed_long": _make_repair_operator(model_path, "chuffed", 20),
+        "repair_gecode_long": _make_repair_operator(model_path, "gecode", 20),
     }
+
+
     destroy_ops: Dict[str, Callable[[rws_lns], list[tuple[int, int]]]] = {
         "destroy_worst_workers_10pct": _make_destroy_worst_workers(0.10),
         "destroy_worst_workers_30pct": _make_destroy_worst_workers(0.30),
@@ -181,6 +208,14 @@ if __name__ == "__main__":
         repair_operators=repair_ops,
     )
 
+    #in the beginning favour fast repairs
+    for repair_op in mab.weights_repair.keys():
+        if 'fast' in repair_op:
+            mab.weights_repair[repair_op] = 0.4
+        elif 'long' in repair_op:
+            mab.weights_repair[repair_op] = 0.1
+
+    #######################################
     print(f"Loaded instance: {instance_path}")
     print(f"Configured destroy operators: {len(mab.destroy_operators)}")
     for name in mab.destroy_operators:
@@ -188,3 +223,14 @@ if __name__ == "__main__":
     print(f"Configured repair operators: {len(mab.repair_operators)}")
     for name in mab.repair_operators:
         print(f"  - {name}")
+
+    ######################################
+    instance, schedule = load_instance_and_schedule(
+        file_path=instance_path,
+        cyclicity=True,
+    )
+    print(f"Loaded: {instance_path}")
+    schedule.display_schedule()
+    schedule.display_violations()
+
+

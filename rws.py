@@ -438,40 +438,44 @@ class RWS:
             
             print("="*80 + "\n")
 
-        def display_violations(self) -> None:
+        def display_violations(self, totals_only: bool = False) -> None:
             """Print compact violation summaries (per-worker, per-day and totals)."""
             summary = self.detect_all_violations()
             totals = self.count_total_violations(summary)
             inst = self.instance
 
-            print("Violation counts per worker:")
-            print("=" * 80)
-            for worker in range(inst.num_workers):
-                print(
-                    f"  Worker {worker}: sequence={summary['sequence']['by_worker'][worker]:>2}  "
-                    f"min={summary['min']['by_worker'][worker]:>2}  "
-                    f"max={summary['max']['by_worker'][worker]:>2}"
-                )
-            print("=" * 80 + "\n")
+            if totals_only:
+                print(f"{'Total violations':.<40} {sum(totals.values()):>3}")
+                print("=" * 80 + "\n")
+            else:
+                print("Violation counts per worker:")
+                print("=" * 80)
+                for worker in range(inst.num_workers):
+                    print(
+                        f"  Worker {worker}: sequence={summary['sequence']['by_worker'][worker]:>2}  "
+                        f"min={summary['min']['by_worker'][worker]:>2}  "
+                        f"max={summary['max']['by_worker'][worker]:>2}"
+                    )
+                print("=" * 80 + "\n")
 
-            print("Violation counts per day:")
-            print("=" * 80)
-            for day in range(inst.num_days):
-                print(
-                    f"  Day {day}: sequence={summary['sequence']['by_day'][day]:>2}  "
-                    f"min={summary['min']['by_day'][day]:>2}  "
-                    f"max={summary['max']['by_day'][day]:>2}  "
-                    f"required shifts={summary['required']['by_day'][day]:>2}"
-                )
-            print("=" * 80 + "\n")
+                print("Violation counts per day:")
+                print("=" * 80)
+                for day in range(inst.num_days):
+                    print(
+                        f"  Day {day}: sequence={summary['sequence']['by_day'][day]:>2}  "
+                        f"min={summary['min']['by_day'][day]:>2}  "
+                        f"max={summary['max']['by_day'][day]:>2}  "
+                        f"required shifts={summary['required']['by_day'][day]:>2}"
+                    )
+                print("=" * 80 + "\n")
 
-            print("Total violated clauses:")
-            print("=" * 80)
-            for key, value in totals.items():
-                print(f"  {key:.<40} {value:>3}")
-            print("=" * 80)
-            print(f"  {'Total violations':.<40} {sum(totals.values()):>3}")
-            print("=" * 80 + "\n")
+                print("Total violated clauses:")
+                print("=" * 80)
+                for key, value in totals.items():
+                    print(f"  {key:.<40} {value:>3}")
+                print("=" * 80)
+                print(f"  {'Total violations':.<40} {sum(totals.values()):>3}")
+                print("=" * 80 + "\n")
 
 
 @dataclass
