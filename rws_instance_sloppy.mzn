@@ -10,7 +10,7 @@ int: s = 3; %number of shifts
 set of int: shifts = 1..s; %1: day, 2: afternoon, 3: night, 0: off
 
 
-array[0..s+1, 1..2] of int: max_min_lengths = array2d(0..4, 1..2, [2, 4, 2, 7, 2, 6, 2, 5, 4, 7]);
+array[0..s+1, 1..2] of int: max_min_lengths = array2d(0..4, 1..2, [0, 7, 0, 7, 0, 7, 0, 7, 0, 7]);
 % min max for free, day, afternoon, night total
 
 int: min_rest = 2;
@@ -20,12 +20,12 @@ int: min_work = 4;
 int: max_work = 7;
 bool: cyclic = true;
 
-int: num_forbidden_sequences = 3;
+int: num_forbidden_sequences = 0;
 % Row width is fixed at 3 (max supported forbidden-sequence length).
 % The first index selects the sequence; the second index selects its position in the tuple.
-array[1..num_forbidden_sequences] of int: forbidden_sequence_lengths = array1d(1..3, [2, 2, 2]);
+array[1..num_forbidden_sequences] of int: forbidden_sequence_lengths = array1d(1..0, []);
 % For length-2 sequences, the 3rd entry is padding (0) and ignored via forbidden_sequence_lengths.
-array[1..num_forbidden_sequences, 1..3] of int: forbidden_sequences = array2d(1..3, 1..3, [3, 1, 0, 3, 2, 0, 2, 1, 0]);
+array[1..num_forbidden_sequences, 1..3] of int: forbidden_sequences = array2d(1..0, 1..3, []);
 
 
 function int: next_day(int: day) = if day = d then 1 else day + 1 endif;
@@ -217,12 +217,9 @@ constraint forall(worker in workers, shift in 0..s)(
 
 % required number of shifts as soft constraints
 constraint forall(day in days, shift in shifts)(
-  sum(worker in workers)(bool2int(shift_of[worker, day] = shift)) + slack_required_min[day, shift] >= required_workers[day, shift]
-  /\
-  sum(worker in workers)(bool2int(shift_of[worker, day] = shift)) - slack_required_max[day, shift] <= required_workers[day, shift]
-  );
-
-
+  sum(worker in workers)(bool2int(shift_of[worker, day] = shift))
+  + slack_required_min[day, shift] >= required_workers[day, shift]
+);
 constraint forall(i in 1..num_forbidden_sequences)(
   forbidden_sequence_lengths[i] = 2 \/ forbidden_sequence_lengths[i] = 3
 );
@@ -259,11 +256,12 @@ constraint slack_forbidden_total =
 solve
   :: int_search([shift_of[w, day] | w in workers, day in days], first_fail, indomain_min, complete)
   minimize
-  sum(worker in workers)(slack_work_min[worker] + slack_work_max[worker] + slack_rest_min[worker] + slack_rest_max[worker] + slack_offday_min[worker])
-  + sum(worker in workers, shift in 0..s)(slack_shifts_min[worker, shift] + slack_shifts_max[worker, shift])
-  + sum(day in days, shift in shifts)(slack_required_min[day, shift] + slack_required_max[day, shift])
-  + slack_forbidden_total;
-
+  sum(worker in workers)(
+    slack_work_min[worker] + slack_work_max[worker] +
+    slack_rest_min[worker] + slack_rest_max[worker] +
+    slack_offday_min[worker]
+  )
+  + sum(day in days, shift in shifts)(slack_required_min[day, shift]);
 %output [ show(d), " days\n\n"];
 %output [
 %  "Violations (slack totals):\n",

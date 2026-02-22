@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 # If performance becomes an issue, we can use numpy arrays for the assignment and consecutive counters, 
@@ -126,11 +127,15 @@ class RWS:
         assignment: List[List[int]]
         run_compatibility_check: bool = False
         compatibility_issues: List[str] = field(init=False, default_factory=list)
+        worker_ranked_by_violations: Dict[int, int] = field(init=False, default_factory=dict)
+        days_ranked_by_violations: Dict[int, int] = field(init=False, default_factory=dict)
 
         def __post_init__(self) -> None:
             self._check_admissibility()
+            summary = self.detect_all_violations()
+            self._refresh_ranked_violations(summary)
             if self.run_compatibility_check:
-                self.compatibility_issues = self.check_compatibility()
+                self.compatibility_issues = self.check_compatibility(summary=summary)
 
         def _check_admissibility(self) -> None:
             inst = self.instance
@@ -147,9 +152,13 @@ class RWS:
                             f"invalid shift id at day {day}, worker {worker}: {shift}"
                         )
 
-        def check_compatibility(self) -> List[str]:
+
+        def check_compatibility(
+            self,
+            summary: Optional[Dict[str, Dict[str, Dict[int, int]]]] = None,
+        ) -> List[str]:
             """Return empty list if schedule is feasible, otherwise summarize violations."""
-            totals = self.count_total_violations()
+            totals = self.count_total_violations(summary)
             total_violations = sum(totals.values())
             if total_violations == 0:
                 return []
@@ -160,6 +169,30 @@ class RWS:
                 if count > 0:
                     issues.append(f"{key} violations: {count}")
             return issues
+
+        @staticmethod
+        def _rank_counts_desc(counts: Dict[int, int]) -> Dict[int, int]:
+            """Return insertion-ordered dict ranked by descending count then ascending id."""
+            return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+        def _refresh_ranked_violations(
+            self, summary: Optional[Dict[str, Dict[str, Dict[int, int]]]] = None
+        ) -> None:
+            """Compute ranked violation dictionaries for workers and days."""
+            s = summary or self.detect_all_violations()
+            by_worker: Dict[int, int] = {w: 0 for w in range(self.instance.num_workers)}
+            by_day: Dict[int, int] = {d: 0 for d in range(self.instance.num_days)}
+            for key in ("sequence", "min", "max", "required"):
+                for worker, count in s[key]["by_worker"].items():
+                    by_worker[worker] += count
+                for day, count in s[key]["by_day"].items():
+                    by_day[day] += count
+            self.worker_ranked_by_violations = self._rank_counts_desc(by_worker)
+            self.days_ranked_by_violations = self._rank_counts_desc(by_day)
+
+        def refresh_ranked_violations(self) -> None:
+            """Public helper to recompute ranked violations after external assignment edits."""
+            self._refresh_ranked_violations()
 
         # Detect all kindas of violations and return by worker and day involved
 
@@ -455,6 +488,7 @@ class rws_lns:
     _cached_model_instance: Any = field(default=None, init=False, repr=False)
     _cached_model_path: Optional[Path] = field(default=None, init=False, repr=False)
     _cached_solver_name: Optional[str] = field(default=None, init=False, repr=False)
+    _cached_sloppy: Optional[bool] = field(default=None, init=False, repr=False)
 
 
     def _initialize_fixed_vars(self, schedule: Optional["RWS.Schedule"] = None) -> None:
@@ -503,7 +537,8 @@ class rws_lns:
         model_instance: Any | None = None,
         model_path: str | Path | None = None,
         solver_name: str = "chuffed",
-        timeout_seconds: int = 30,
+        sloppy: bool = False,
+        timeout_seconds: int = 10,
     ) -> None:
         """Run an exact MiniZinc repair and store the result in `self.contender`.
 
@@ -523,14 +558,17 @@ class rws_lns:
                 self._cached_model_instance is None
                 or self._cached_model_path != resolved_model_path
                 or self._cached_solver_name != solver_name
+                or self._cached_sloppy != sloppy
             ):
                 self._cached_model_instance, _ = build_rws_model_instance(
                     lns=self,
                     model_path=resolved_model_path,
                     solver_name=solver_name,
+                    sloppy=sloppy,
                 )
                 self._cached_model_path = resolved_model_path
                 self._cached_solver_name = solver_name
+                self._cached_sloppy = sloppy
 
             model_instance = self._cached_model_instance
         else:
@@ -558,7 +596,6 @@ def _parse_id_list(raw: str) -> List[int]:
 
 
 if __name__ == "__main__":
-    from rws_mzk_pipeline import build_rws_model_instance, solve_rws_lns
     from rws_instance_loader import load_instance_and_schedule
 
     raw_example = input("Example number [1]: ").strip()
@@ -579,14 +616,10 @@ if __name__ == "__main__":
     print(f"Loaded instance: {instance_path}")
 
     lns = rws_lns(instance=instance, incumbent=schedule)
-    solver_name = "chuffed"
-    timeout_seconds = 30
+    solver_name = "gecode"
+    sloppy = True
+    timeout_seconds = 1
     model_path = Path(__file__).resolve().parent / "rws_instance.mzn"
-    model_instance, _ = build_rws_model_instance(
-        lns=lns,
-        model_path=model_path,
-        solver_name=solver_name,
-    )
     run_idx = 1
 
     while True:
@@ -620,15 +653,14 @@ if __name__ == "__main__":
             freed = lns.destroy_day(day_ids)
             print(f"Destroyed day vars: {len(freed)}")
 
-        summary = solve_rws_lns(
-            lns=lns,
-            model_instance=model_instance,
+        repair_start = perf_counter()
+        lns.repair_exact(
+            model_path=model_path,
+            solver_name=solver_name,
             timeout_seconds=timeout_seconds,
+            sloppy=False
         )
-        runtime = summary["solve_time_sec"]
-        if not summary.get("has_solution") or lns.contender is None:
-            raise RuntimeError(f"MiniZinc repair failed with status: {summary['status']}")
-        lns._initialize_fixed_vars(lns.contender)
+        runtime = perf_counter() - repair_start
 
         after_totals = lns.contender.count_total_violations()
         after_total = sum(after_totals.values())

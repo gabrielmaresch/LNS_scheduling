@@ -117,6 +117,7 @@ def _generate_rws_instance_mzn(
     lns: "rws_lns",
     base_model_path: str | Path = "rws_generic.mzn",
     output_model_path: str | Path = "rws_instance.mzn",
+    sloppy: bool = False,
 ) -> Path:
     """Generate a fully-parameterized MiniZinc model file for this RWS instance."""
     base_file = Path(base_model_path)
@@ -124,6 +125,8 @@ def _generate_rws_instance_mzn(
         base_file = Path(__file__).resolve().parent / base_file
 
     out_file = Path(output_model_path)
+    if sloppy and out_file.name == "rws_instance.mzn":
+        out_file = out_file.with_name("rws_instance_sloppy.mzn")
     if not out_file.is_absolute():
         out_file = base_file.parent / out_file
 
@@ -133,6 +136,14 @@ def _generate_rws_instance_mzn(
     required_workers = _required_workers_from_lns(lns)
     forbidden_lengths, forbidden_sequences = _forbidden_sequence_arrays_from_lns(lns)
     num_forbidden_sequences = len(forbidden_sequences)
+
+    if sloppy:
+        # Keep only core run constraints by making per-shift run bounds non-binding.
+        max_min_lengths = [[0, params["d"]] for _ in range(params["s"] + 2)]
+        # Disable forbidden-sequence soft component in sloppy mode.
+        forbidden_lengths = []
+        forbidden_sequences = []
+        num_forbidden_sequences = 0
 
     text = _replace_once(text, r"^int:\s*d\s*;.*$", f"int: d = {params['d']}; %number of days to be scheduled")
     text = _replace_once(text, r"^int:\s*n\s*;.*$", f"int: n = {params['n']}; %number of workers")
@@ -176,6 +187,43 @@ def _generate_rws_instance_mzn(
         + ";",
     )
 
+    if sloppy:
+        required_repl = (
+            "% required number of shifts as soft constraints\n"
+            "constraint forall(day in days, shift in shifts)(\n"
+            "  sum(worker in workers)(bool2int(shift_of[worker, day] = shift))\n"
+            "  + slack_required_min[day, shift] >= required_workers[day, shift]\n"
+            ");\n"
+        )
+        text, required_count = re.subn(
+            r"(?ms)^% required number of shifts as soft constraints\s*\nconstraint forall\(day in days, shift in shifts\)\(.*?\);\s*",
+            required_repl,
+            text,
+            count=1,
+        )
+        if required_count != 1:
+            raise ValueError("Could not apply sloppy required-shifts transform")
+
+        sloppy_objective = (
+            "solve\n"
+            "  :: int_search([shift_of[w, day] | w in workers, day in days], first_fail, indomain_min, complete)\n"
+            "  minimize\n"
+            "  sum(worker in workers)(\n"
+            "    slack_work_min[worker] + slack_work_max[worker] +\n"
+            "    slack_rest_min[worker] + slack_rest_max[worker] +\n"
+            "    slack_offday_min[worker]\n"
+            "  )\n"
+            "  + sum(day in days, shift in shifts)(slack_required_min[day, shift]);\n"
+        )
+        text, objective_count = re.subn(
+            r"(?ms)^solve\s*\n\s*::\s*int_search\(\[shift_of\[w, day\] \| w in workers, day in days\], first_fail, indomain_min, complete\)\s*\n\s*minimize\s*\n.*?;\s*",
+            sloppy_objective,
+            text,
+            count=1,
+        )
+        if objective_count != 1:
+            raise ValueError("Could not apply sloppy objective transform")
+
     out_file.write_text(text, encoding="utf-8")
     return out_file
 
@@ -200,6 +248,7 @@ def build_rws_model_instance(
     lns: "rws_lns",
     model_path: str | Path = "rws_instance.mzn",
     solver_name: str = "chuffed",
+    sloppy: bool = False,
 ) -> tuple[Any, Path]:
     """Build and return a MiniZinc Instance for RWS with injected instance-level data."""
     from minizinc import Instance, Model, Solver
@@ -211,12 +260,15 @@ def build_rws_model_instance(
     base_model_file = model_file.with_name("rws_generic.mzn")
     if model_file.name == "rws_generic.mzn":
         base_model_file = model_file
-        model_file = model_file.with_name("rws_instance.mzn")
+        model_file = model_file.with_name("rws_instance_sloppy.mzn" if sloppy else "rws_instance.mzn")
+    elif sloppy and model_file.name == "rws_instance.mzn":
+        model_file = model_file.with_name("rws_instance_sloppy.mzn")
 
     _generate_rws_instance_mzn(
         lns=lns,
         base_model_path=base_model_file,
         output_model_path=model_file,
+        sloppy=sloppy,
     )
 
     model = Model(str(model_file))

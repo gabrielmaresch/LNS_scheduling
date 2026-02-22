@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import random
 from typing import Any, Callable, Dict, Optional
 
 from rws import RWS, rws_lns
@@ -79,3 +80,111 @@ class bandit:
 
     def is_good_enough(self, schedule: Optional[RWS.Schedule] = None) -> bool:
         return self.score(schedule) >= self.good_enough_threshold
+
+
+def _make_repair_operator(
+    model_path: Path, solver_name: str, sloppy: bool, timeout_seconds: int
+) -> Callable[[rws_lns], None]:
+    """Create a configured repair operator closure."""
+    def _op(lns: rws_lns) -> None:
+        lns.repair_exact(
+            model_path=model_path,
+            solver_name=solver_name,
+            sloppy=sloppy,
+            timeout_seconds=timeout_seconds,
+        )
+    return _op
+
+
+def _current_schedule(lns: rws_lns) -> RWS.Schedule:
+    return lns.contender if lns.contender is not None else lns.incumbent
+
+
+def _floor_fraction_count(total: int, fraction: float) -> int:
+    return int(total * fraction)
+
+
+def _take_ranked_ids(ranked: Dict[int, int], k: int) -> list[int]:
+    if k <= 0:
+        return []
+    return list(ranked.keys())[:k]
+
+
+def _make_destroy_worst_workers(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        schedule = _current_schedule(lns)
+        k = _floor_fraction_count(lns.instance.num_workers, fraction)
+        worker_ids = _take_ranked_ids(schedule.worker_ranked_by_violations, k)
+        return lns.destroy_worker(worker_ids)
+    return _op
+
+
+def _make_destroy_worst_days(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        schedule = _current_schedule(lns)
+        k = _floor_fraction_count(lns.instance.num_days, fraction)
+        day_ids = _take_ranked_ids(schedule.days_ranked_by_violations, k)
+        return lns.destroy_day(day_ids)
+    return _op
+
+
+def _make_destroy_random_workers(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        k = _floor_fraction_count(lns.instance.num_workers, fraction)
+        if k <= 0:
+            return []
+        worker_ids = random.sample(range(lns.instance.num_workers), k)
+        return lns.destroy_worker(worker_ids)
+    return _op
+
+
+def _make_destroy_random_days(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        k = _floor_fraction_count(lns.instance.num_days, fraction)
+        if k <= 0:
+            return []
+        day_ids = random.sample(range(lns.instance.num_days), k)
+        return lns.destroy_day(day_ids)
+    return _op
+
+
+if __name__ == "__main__":
+    from rws_instance_loader import load_instance_and_schedule
+
+    base = Path(__file__).resolve().parent
+    instance_path = base / "Instances1-50" / "Example3.txt"
+    instance, schedule = load_instance_and_schedule(file_path=instance_path, cyclicity=True)
+
+    model_path = base / "rws_instance.mzn"
+    repair_ops: Dict[str, Callable[[rws_lns], None]] = {
+        "repair_chuffed_sloppy_1s": _make_repair_operator(model_path, "chuffed", True, 1),
+        "repair_chuffed_full_1s": _make_repair_operator(model_path, "chuffed", False, 1),
+        "repair_gecode_sloppy_1s": _make_repair_operator(model_path, "gecode", True, 1),
+        "repair_gecode_full_1s": _make_repair_operator(model_path, "gecode", False, 1),
+        "repair_chuffed_full_20s": _make_repair_operator(model_path, "chuffed", False, 20),
+        "repair_gecode_full_20s": _make_repair_operator(model_path, "gecode", False, 20),
+    }
+    destroy_ops: Dict[str, Callable[[rws_lns], list[tuple[int, int]]]] = {
+        "destroy_worst_workers_10pct": _make_destroy_worst_workers(0.10),
+        "destroy_worst_workers_30pct": _make_destroy_worst_workers(0.30),
+        "destroy_random_workers_20pct": _make_destroy_random_workers(0.20),
+        "destroy_worst_days_10pct": _make_destroy_worst_days(0.10),
+        "destroy_worst_days_30pct": _make_destroy_worst_days(0.30),
+        "destroy_random_days_20pct": _make_destroy_random_days(0.20),
+    }
+
+    mab = bandit(
+        schedule=schedule,
+        warmstart_instance=instance,
+        model_path=model_path,
+        destroy_operators=destroy_ops,
+        repair_operators=repair_ops,
+    )
+
+    print(f"Loaded instance: {instance_path}")
+    print(f"Configured destroy operators: {len(mab.destroy_operators)}")
+    for name in mab.destroy_operators:
+        print(f"  - {name}")
+    print(f"Configured repair operators: {len(mab.repair_operators)}")
+    for name in mab.repair_operators:
+        print(f"  - {name}")

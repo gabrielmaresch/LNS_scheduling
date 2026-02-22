@@ -59,10 +59,6 @@ constraint forall(i in 1..num_fixed_assignments)(
   shift_of[fixed_assignments[i, 1], fixed_assignments[i, 2]] = fixed_assignments[i, 3]
 );
 
-constraint forall(worker in workers)(
-  sum(day in days)(bool2int(shift_of[worker, day] = 0)) >= 1
-);
-
 % Auxilary variable: On day d', how many consecutive days has worker n' already worked
 array[1..n, 1..d] of var 0..d: work_length_until;
 array[1..n, 1..d] of var 0..d: rest_length_until;
@@ -72,12 +68,17 @@ array[1..n] of var 0..d: slack_work_min;
 array[1..n] of var 0..d: slack_work_max;
 array[1..n] of var 0..d: slack_rest_min;
 array[1..n] of var 0..d: slack_rest_max;
+array[1..n] of var 0..1: slack_offday_min;
 array[1..n, 0..s] of var 0..d: slack_shifts_min;
 array[1..n, 0..s] of var 0..d: slack_shifts_max;
 array[1..d, 1..s] of var 0..n: slack_required_min;
 array[1..d, 1..s] of var 0..n: slack_required_max;
 var int: slack_forbidden_total;
 constraint slack_forbidden_total >= 0;
+
+constraint forall(worker in workers)(
+  sum(day in days)(bool2int(shift_of[worker, day] = 0)) + slack_offday_min[worker] >= 1
+);
 
 % Consecutive run length per exact shift (including 0 = off)
 array[1..n, 1..d, 0..s] of var 0..d: shift_length_until;
@@ -104,7 +105,7 @@ array[1..n, 1..d] of var 0..d: work_length_cyclic;
 constraint forall(worker in workers)(
   work_length_cyclic[worker, 1] =
     if (shift_of[worker, 1] > 0 /\ shift_of[worker, d] > 0) then
-      work_length_until[worker,d] + 1
+      min(d, work_length_until[worker,d] + 1)
     else
       0
     endif
@@ -114,7 +115,7 @@ constraint
   forall(worker in workers, day in 2..d)(
     work_length_cyclic[worker,day] =
       if shift_of[worker,day] > 0 then
-        work_length_cyclic[worker,day-1] + 1
+        min(d, work_length_cyclic[worker,day-1] + 1)
       else
         0
       endif
@@ -258,7 +259,7 @@ constraint slack_forbidden_total =
 solve
   :: int_search([shift_of[w, day] | w in workers, day in days], first_fail, indomain_min, complete)
   minimize
-  sum(worker in workers)(slack_work_min[worker] + slack_work_max[worker] + slack_rest_min[worker] + slack_rest_max[worker])
+  sum(worker in workers)(slack_work_min[worker] + slack_work_max[worker] + slack_rest_min[worker] + slack_rest_max[worker] + slack_offday_min[worker])
   + sum(worker in workers, shift in 0..s)(slack_shifts_min[worker, shift] + slack_shifts_max[worker, shift])
   + sum(day in days, shift in shifts)(slack_required_min[day, shift] + slack_required_max[day, shift])
   + slack_forbidden_total;
