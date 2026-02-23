@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 import math
 from pathlib import Path
@@ -23,29 +24,39 @@ def _default_score_function(
         return 9
     elif number_of_conflicts_contender == number_of_conflicts_incumbent:
         return 3
+    
     p = math.exp(- (number_of_conflicts_contender - number_of_conflicts_incumbent)/temperature)
     return 3 if random.random() < p else 0
 
+def compute_softmax(score: float, beta_softmax: float) -> float:
+    """ computes the unnormalized softmax exp-values"""
+    return math.exp(beta_softmax*score)
+
+
+
 @dataclass
-class bandit:
+class Bandit:
     """Configuration and operator container for a multiarm-bandit LNS loop."""
 
     instance: RWS.Instance
     schedule: RWS.Schedule
     weights_destroy: Optional[Dict[str, float]] = None
     weights_repair: Optional[Dict[str, float]] = None
-    iterations_till_weight_update: int = 10
+    iterations_till_weight_update: int = 15
     reaction_factor: float = 0.15
+    beta_softmax: float = 0.5
+    
     annealing_temperature: float = 5
-    min_temperature: float = 0.7
-    time_decay: float = 0.98
-    epsilon: float = 0.02
-    global_timeout_seconds: float = 300.0
+    min_annealing_temperature: float = 0.7
+    time_decay_annealing: float = 0.98
+
+    global_timeout_seconds: float = 150.0
     model_path: str | Path | None = None
     solver_name: str = "chuffed"
     minizinc_timeout_seconds: int = 10
     exploratory_timeout_seconds: float = 30
     exploration_after_stagnation: int = 5
+    acceptance_score: int = 3
     conflicts_best_solution: int = field(init=False)
     conflicts_current_solution: int = field(init=False)
     score_function: Callable[[int, int, int, float], int] = _default_score_function
@@ -58,8 +69,13 @@ class bandit:
     lns_loop_counter: int = 0
     operator_score_sums: Dict[str, float] = field(init=False)
     operator_usage_counts: Dict[str, int] = field(init=False)
-    last_destroyed_workers: frozenset[int] = field(default_factory=frozenset, init=False, repr=False)
-    last_destroyed_days: frozenset[int] = field(default_factory=frozenset, init=False, repr=False)
+    destroy_tabu_length: int = 8
+    destroy_tabu_history: deque[tuple[frozenset[int], frozenset[int]]] = field(
+        init=False, repr=False
+    )
+    destroy_tabu_counts: Dict[tuple[frozenset[int], frozenset[int]], int] = field(
+        init=False, repr=False
+    )
     stagnation_rounds: int = 0
     tabu: bool = False
 
@@ -76,25 +92,27 @@ class bandit:
             raise ValueError("iterations_till_weight_update must be > 0")
         if not (0.0 <= self.reaction_factor <= 1.0):
             raise ValueError("reaction_factor must be in [0, 1]")
-        if not (0.0 <= self.epsilon < 1.0):
-            raise ValueError("epsilon must be in [0, 1)")
         if self.global_timeout_seconds <= 0:
             raise ValueError("global_timeout_seconds must be > 0")
         if self.exploration_after_stagnation <= 0:
             raise ValueError("exploration_after_stagnation must be > 0")
         if self.annealing_temperature <= 0:
             raise ValueError("annealing_temperature must be > 0")
-        if self.min_temperature <= 0:
+        if self.min_annealing_temperature <= 0:
             raise ValueError("min_temperature must be > 0")
-        if self.min_temperature > self.annealing_temperature:
+        if self.min_annealing_temperature > self.annealing_temperature:
             raise ValueError("min_temperature must be <= annealing_temperature")
-        if not (0 < self.time_decay <= 1):
+        if not (0 < self.time_decay_annealing <= 1):
             raise ValueError("time_decay must be in (0, 1]")
 
         if self.minizinc_timeout_seconds <= 0:
             raise ValueError("minizinc_timeout_seconds must be > 0")
         if self.exploratory_timeout_seconds <= 0:
             raise ValueError("exploratory_timeout_seconds must be > 0")
+        if self.acceptance_score < 0:
+            raise ValueError("acceptance_score must be >= 0")
+        if self.destroy_tabu_length <= 0:
+            raise ValueError("destroy_tabu_length must be > 0")
 
             
 
@@ -106,9 +124,8 @@ class bandit:
                 "destroy_day": (
                     lambda lns: lns.destroy_day(random.randrange(lns.instance.num_days))
                 ),
+                "destroy_worst_window_20pct": _make_destroy_worst_window(0.20),
             }
-        if self.epsilon * len(self.destroy_operators) > 1.0:
-            raise ValueError("epsilon too large for number of destroy operators")
 
         if not self.repair_operators:
             self.repair_operators = {
@@ -120,8 +137,7 @@ class bandit:
                     )
                 )
             }
-        if self.epsilon * len(self.repair_operators) > 1.0:
-            raise ValueError("epsilon too large for number of repair operators")
+
         self.destroy_exploration_operator = _make_destroy_random_workers_and_days(
             workers_fraction=0.2,
             days_fraction=0.1,
@@ -137,15 +153,16 @@ class bandit:
         self.weights_destroy = self._init_weights(self.weights_destroy, self.destroy_operators)
         self.weights_repair = self._init_weights(self.weights_repair, self.repair_operators)
         self._initialize_operator_tracking()
+        self.destroy_tabu_history = deque()
+        self.destroy_tabu_counts = {}
         self.lns = rws_lns(instance=self.instance, incumbent=self.schedule)
-
 
     def _init_weights(
         self,
         weights: Optional[Dict[str, float]],
         operators: Dict[str, Callable[..., Any]],
     ) -> Dict[str, float]:
-        """Initialize and normalize operator weights, or create equal defaults."""
+        """Initialize operator weights, or create equal defaults."""
         keys = list(operators.keys())
         if weights is None:
             equal = 1.0 / len(keys)
@@ -159,8 +176,7 @@ class bandit:
                 raise ValueError(f"weight for {key!r} must be a positive number")
 
         total = float(sum(weights.values()))
-        normalized = {key: float(weights[key]) / total for key in keys}
-        return self._normalize_weights(normalized)
+        return {key: float(weights[key]) / total for key in keys}
 
     def _choose_repair_operator(self) -> tuple[str, Callable[..., Any]]:
         """Sample one repair operator according to current repair weights."""
@@ -196,26 +212,19 @@ class bandit:
         days = {day for day, _ in destroyed_pairs}
         return workers, days
 
-    def _is_subset_tabu(self, destroyed_workers: set[int], destroyed_days: set[int]) -> bool:
-        """Return True when current destroyed IDs are a subset of previous destroyed IDs."""
-        workers_subset = (
-            bool(destroyed_workers)
-            and bool(self.last_destroyed_workers)
-            and destroyed_workers.issubset(self.last_destroyed_workers)
-        )
-        days_subset = (
-            bool(destroyed_days)
-            and bool(self.last_destroyed_days)
-            and destroyed_days.issubset(self.last_destroyed_days)
-        )
-        return workers_subset or days_subset
+    def _is_strict_tabu(self, destroyed_workers: set[int], destroyed_days: set[int]) -> bool:
+        """Return True when current destroyed IDs match a recent tabu signature."""
+        if not destroyed_workers and not destroyed_days:
+            return False
+        signature = self._destroy_signature(destroyed_workers, destroyed_days)
+        return signature in self.destroy_tabu_counts
 
     def _choose_and_apply_destroy(
         self,
         lns: rws_lns,
         use_exploration: bool,
     ) -> tuple[str, list[tuple[int, int]], set[int], set[int]]:
-        """Apply a destroy move while avoiding immediate subset repetition of destroyed IDs."""
+        """Apply a destroy move while avoiding immediate strict repetition of destroyed IDs."""
         attempts = max(8, len(self.destroy_operators) * 3)
         last_name = "destroy_exploration" if use_exploration else "destroy"
         last_result: list[tuple[int, int]] = []
@@ -237,9 +246,8 @@ class bandit:
                 lns=lns,
                 use_exploration=use_exploration,
             )
-            if not self._is_subset_tabu(workers, days):
-                self.last_destroyed_workers = frozenset(workers)
-                self.last_destroyed_days = frozenset(days)
+            if not self._is_strict_tabu(workers, days):
+                self._record_destroy_signature(workers, days)
                 return destroy_name, destroy_result, workers, days
 
             last_name = destroy_name
@@ -247,42 +255,9 @@ class bandit:
             last_workers = workers
             last_days = days
 
-        # Fallback: keep the last attempt if no non-subset destroy could be found.
-        self.last_destroyed_workers = frozenset(last_workers)
-        self.last_destroyed_days = frozenset(last_days)
+        # Fallback: keep the last attempt if no non-matching destroy could be found.
+        self._record_destroy_signature(last_workers, last_days)
         return last_name, last_result, last_workers, last_days
-
-    def _normalize_weights(self, weights: Dict[str, float]) -> Dict[str, float]:
-        """Normalize probabilities and enforce an epsilon lower bound per operator."""
-        n = len(weights)
-        if n == 0:
-            return {}
-        if self.epsilon * n > 1.0:
-            raise ValueError("epsilon too large for number of operators")
-
-        total = float(sum(weights.values()))
-        if total <= 0:
-            normalized = {name: 1.0 / n for name in weights}
-        else:
-            normalized = {name: max(float(value), 0.0) / total for name, value in weights.items()}
-
-        floor = self.epsilon
-        if floor == 0.0:
-            return normalized
-
-        residual_mass = 1.0 - n * floor
-        if residual_mass < 0.0:
-            raise ValueError("epsilon too large for number of operators")
-
-        extras = {name: max(value - floor, 0.0) for name, value in normalized.items()}
-        extras_total = float(sum(extras.values()))
-        if extras_total <= 0.0:
-            return {name: 1.0 / n for name in weights}
-
-        return {
-            name: floor + residual_mass * (extra / extras_total)
-            for name, extra in extras.items()
-        }
 
     def _operator_key(self, kind: str, name: str) -> str:
         """Build the tracking key used for operator score/usage dictionaries."""
@@ -302,30 +277,50 @@ class bandit:
         for key in self.operator_usage_counts:
             self.operator_usage_counts[key] = 0
 
-    def update_operator_weights(self) -> None:
-        """Update destroy/repair weights from tracked average scores and renormalize."""
-        for name, old_weight in self.weights_destroy.items():
+    def _update_operator_weights(self) -> None:
+        """Update destroy/repair weights from tracked average scores."""
+        destroy_targets: Dict[str, float] = {}
+        destroy_total = 0.0
+        for name in self.destroy_operators:
             key = self._operator_key("destroy", name)
             usage = self.operator_usage_counts.get(key, 0)
-            avg_score = (
-                self.operator_score_sums.get(key, 0.0) / usage if usage > 0 else 0.0
-            )
-            self.weights_destroy[name] = (1 - self.reaction_factor) * float(old_weight) + (
-                self.reaction_factor * avg_score
-            )
+            score_sum = self.operator_score_sums.get(key, 0.0)
+            avg_score = score_sum / usage if usage > 0 else 0.0
+            destroy_targets[name] = compute_softmax(avg_score, self.beta_softmax)
+            destroy_total += destroy_targets[name]
+        if destroy_total <= 0.0:
+            equal_destroy = 1.0 / len(self.destroy_operators)
+            destroy_targets = {name: equal_destroy for name in self.destroy_operators}
+        else:
+            for name in destroy_targets:
+                destroy_targets[name] /= destroy_total
 
-        for name, old_weight in self.weights_repair.items():
+        repair_targets: Dict[str, float] = {}
+        repair_total = 0.0
+        for name in self.repair_operators:
             key = self._operator_key("repair", name)
             usage = self.operator_usage_counts.get(key, 0)
-            avg_score = (
-                self.operator_score_sums.get(key, 0.0) / usage if usage > 0 else 0.0
-            )
-            self.weights_repair[name] = (1 - self.reaction_factor) * float(old_weight) + (
-                self.reaction_factor * avg_score
+            score_sum = self.operator_score_sums.get(key, 0.0)
+            avg_score = score_sum / usage if usage > 0 else 0.0
+            repair_targets[name] = compute_softmax(avg_score, self.beta_softmax)
+            repair_total += repair_targets[name]
+        if repair_total <= 0.0:
+            equal_repair = 1.0 / len(self.repair_operators)
+            repair_targets = {name: equal_repair for name in self.repair_operators}
+        else:
+            for name in repair_targets:
+                repair_targets[name] /= repair_total
+
+        for name, old_weight in list(self.weights_destroy.items()):
+            self.weights_destroy[name] = (1 - self.reaction_factor) * float(old_weight) + (
+                self.reaction_factor * destroy_targets[name]
             )
 
-        self.weights_destroy = self._normalize_weights(self.weights_destroy)
-        self.weights_repair = self._normalize_weights(self.weights_repair)
+        for name, old_weight in list(self.weights_repair.items()):
+            self.weights_repair[name] = (1 - self.reaction_factor) * float(old_weight) + (
+                self.reaction_factor * repair_targets[name]
+            )
+
         self._reset_operator_tracking()
 
     
@@ -365,7 +360,7 @@ class bandit:
         destroyed_workers = sorted(destroyed_workers_set)
         destroyed_days = sorted(destroyed_days_set)
         if use_exploration:
-            destroyed_target_type = "workers_and_days"
+            destroyed_target_type = "window"
             destroyed_target_ids = {
                 "workers": destroyed_workers,
                 "days": destroyed_days,
@@ -404,8 +399,8 @@ class bandit:
             contender_conflicts = incumbent_conflicts
             contender_score = 0
         self.annealing_temperature = max(
-            self.annealing_temperature * self.time_decay,
-            self.min_temperature,
+            self.annealing_temperature * self.time_decay_annealing,
+            self.min_annealing_temperature,
         )
         
         if not use_exploration:
@@ -424,7 +419,7 @@ class bandit:
                 self.operator_usage_counts.get(repair_key, 0) + 1
             )
 
-        accepted = (not repair_failed) and contender_score >= 3
+        accepted = (not repair_failed) and contender_score >= self.acceptance_score
         if accepted:
             self.schedule = lns.contender
             self.conflicts_current_solution = contender_conflicts
@@ -440,7 +435,7 @@ class bandit:
         destroy_weight_updates: Dict[str, Dict[str, float]] = {}
         repair_weight_updates: Dict[str, Dict[str, float]] = {}
         if update_this_round:
-            self.update_operator_weights()
+            self._update_operator_weights()
             weights_updated = True
             destroy_weight_updates = {
                 name: {
@@ -483,10 +478,36 @@ class bandit:
         # - Restrict destroy neighborhoods to small focused moves around worst violations.
         # - Accept only improving moves (or stricter SA) and stop on stagnation.
         raise NotImplementedError("TODO: implement final_push")
-    # TODO: expand tabu length
-    # - Replace last_destroyed_* single-step memory with bounded FIFO history.
-    # - Compare new destroy signatures against the last L tabu entries.
-    
+
+    def _destroy_signature(
+        self,
+        destroyed_workers: set[int],
+        destroyed_days: set[int],
+    ) -> tuple[frozenset[int], frozenset[int]]:
+        """Convert current destroy IDs into a hashable tabu signature."""
+        return frozenset(destroyed_workers), frozenset(destroyed_days)
+
+    def _record_destroy_signature(
+        self,
+        destroyed_workers: set[int],
+        destroyed_days: set[int],
+    ) -> None:
+        """Record current destroy signature in bounded FIFO tabu history."""
+        if not destroyed_workers and not destroyed_days:
+            return
+
+        if len(self.destroy_tabu_history) >= self.destroy_tabu_length:
+            evicted = self.destroy_tabu_history.popleft()
+            evicted_count = self.destroy_tabu_counts.get(evicted, 0)
+            if evicted_count <= 1:
+                self.destroy_tabu_counts.pop(evicted, None)
+            else:
+                self.destroy_tabu_counts[evicted] = evicted_count - 1
+
+        signature = self._destroy_signature(destroyed_workers, destroyed_days)
+        self.destroy_tabu_history.append(signature)
+        self.destroy_tabu_counts[signature] = self.destroy_tabu_counts.get(signature, 0) + 1
+
 
 
 def _make_repair_operator(
@@ -522,6 +543,46 @@ def _take_ranked_ids(ranked: Dict[int, int], k: int) -> list[int]:
     return list(ranked.keys())[:k]
 
 
+def _smallest_cover_interval(ids: list[int], size: int, cyclic: bool) -> list[int]:
+    """Return the smallest contiguous interval covering `ids` on a line or ring."""
+    if size <= 0 or not ids:
+        return []
+
+    unique_sorted = sorted(set(ids))
+    if not cyclic:
+        start = unique_sorted[0]
+        end = unique_sorted[-1]
+        return list(range(start, end + 1))
+
+    if len(unique_sorted) == size:
+        return list(range(size))
+
+    max_gap = -1
+    max_gap_idx = 0
+    count = len(unique_sorted)
+    for idx in range(count):
+        left = unique_sorted[idx]
+        right = unique_sorted[(idx + 1) % count]
+        gap = (right - left) % size
+        if gap > max_gap:
+            max_gap = gap
+            max_gap_idx = idx
+
+    start = unique_sorted[(max_gap_idx + 1) % count]
+    end = unique_sorted[max_gap_idx]
+    interval: list[int] = []
+    current = start
+    while True:
+        interval.append(current)
+        if current == end:
+            break
+        current = (current + 1) % size
+    return interval
+
+
+
+####### Library of different destroy-operators
+
 def _make_destroy_worst_workers(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
     """Build a destroy op that frees the worst workers by violation ranking."""
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
@@ -532,7 +593,6 @@ def _make_destroy_worst_workers(fraction: float) -> Callable[[rws_lns], list[tup
         return lns.destroy_worker(worker_ids)
     return _op
 
-
 def _make_destroy_worst_days(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
     """Build a destroy op that frees the worst days by violation ranking."""
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
@@ -541,6 +601,39 @@ def _make_destroy_worst_days(fraction: float) -> Callable[[rws_lns], list[tuple[
         k = _ceil_fraction_count(lns.instance.num_days, fraction)
         day_ids = _take_ranked_ids(schedule.days_ranked_by_violations, k)
         return lns.destroy_day(day_ids)
+    return _op
+
+
+def _make_destroy_worst_window(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    """Build a destroy op that frees a worst-ranked workers x days index window."""
+    if not (0.0 <= fraction <= 1.0):
+        raise ValueError("fraction must be in [0, 1]")
+
+    def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        """Destroy entries in the smallest interval window covering top-p worst IDs."""
+        schedule = _current_schedule(lns)
+
+        worker_k = _ceil_fraction_count(lns.instance.num_workers, fraction)
+        day_k = _ceil_fraction_count(lns.instance.num_days, fraction)
+        worker_ids = _take_ranked_ids(schedule.worker_ranked_by_violations, worker_k)
+        day_ids = _take_ranked_ids(schedule.days_ranked_by_violations, day_k)
+
+        worker_window = _smallest_cover_interval(
+            ids=worker_ids,
+            size=lns.instance.num_workers,
+            cyclic=True,
+        )
+        day_window = _smallest_cover_interval(
+            ids=day_ids,
+            size=lns.instance.num_days,
+            cyclic=lns.instance.cyclicity,
+        )
+
+        if not worker_window or not day_window:
+            return []
+
+        return lns.destroy_window(workers=worker_window, days=day_window)
+
     return _op
 
 
@@ -555,7 +648,6 @@ def _make_destroy_random_workers(fraction: float) -> Callable[[rws_lns], list[tu
         return lns.destroy_worker(worker_ids)
     return _op
 
-
 def _make_destroy_random_days(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
     """Build a destroy op that frees a random subset of days."""
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
@@ -566,7 +658,6 @@ def _make_destroy_random_days(fraction: float) -> Callable[[rws_lns], list[tuple
         day_ids = random.sample(range(lns.instance.num_days), k)
         return lns.destroy_day(day_ids)
     return _op
-
 
 def _make_destroy_random_workers_and_days(
     workers_fraction: float,
@@ -592,7 +683,7 @@ def _make_destroy_random_workers_and_days(
 
     return _op
 
-
+###################################################################
 
 if __name__ == "__main__":
     from rws_instance_loader import load_instance_and_schedule
@@ -600,8 +691,8 @@ if __name__ == "__main__":
     base = Path(__file__).resolve().parent
     raw_example = input("Example number [1]: ").strip()
     example_number = 1 if raw_example == "" else int(raw_example)
-    if example_number < 1:
-        raise ValueError("example number must be >= 1")
+    if example_number < 0:
+        raise ValueError("example number must be >= 0")
 
     instance_path = base / "Instances1-50" / f"Example{example_number}.txt"
     if not instance_path.exists():
@@ -618,18 +709,17 @@ if __name__ == "__main__":
     }
 
 
-    # TODO: add a "window" destroy operator that frees a k x l submatrix of shift_of
-    # (k workers by l consecutive days), ideally with random and worst-window variants.
     destroy_ops: Dict[str, Callable[[rws_lns], list[tuple[int, int]]]] = {
         "destroy_worst_workers_10pct": _make_destroy_worst_workers(0.10),
         "destroy_worst_workers_20pct": _make_destroy_worst_workers(0.20),
+        "destroy_worst_window_20pct": _make_destroy_worst_window(0.20),
         "destroy_random_workers_20pct": _make_destroy_random_workers(0.20),
         "destroy_worst_days_10pct": _make_destroy_worst_days(0.10),
         "destroy_worst_days_20pct": _make_destroy_worst_days(0.20),
         "destroy_random_days_20pct": _make_destroy_random_days(0.20),
     }
 
-    mab = bandit(
+    mab = Bandit(
         instance=instance,
         schedule=schedule,
         model_path=model_path,

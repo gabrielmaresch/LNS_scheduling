@@ -10,7 +10,7 @@ int: s = 3; %number of shifts
 set of int: shifts = 1..s; %1: day, 2: afternoon, 3: night, 0: off
 
 
-array[0..s+1, 1..2] of int: max_min_lengths = array2d(0..4, 1..2, [2, 4, 4, 7, 4, 7, 4, 7, 4, 7]);
+array[0..s+1, 1..2] of int: max_min_lengths = array2d(0..4, 1..2, [2, 4, 2, 7, 2, 6, 2, 4, 4, 7]);
 % min max for free, day, afternoon, night total
 
 int: min_rest = 2;
@@ -37,7 +37,7 @@ function int: prev_day(int: day) = if day = 1 then d else day - 1 endif;
 
 %required workers for shift s' on day d'
 
-array[1..d, 1..s] of int: required_workers = array2d(1..7, 1..3, [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]);
+array[1..d, 1..s] of int: required_workers = array2d(1..7, 1..3, [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2, 2, 3, 2, 2, 3, 2, 2, 2, 2]);
 
 
 

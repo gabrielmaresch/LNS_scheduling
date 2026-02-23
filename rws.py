@@ -544,6 +544,31 @@ class rws_lns:
             del self.fixed_vars[key]
         return freed
 
+    def destroy_window(
+        self,
+        workers: int | Iterable[int],
+        days: int | Iterable[int],
+    ) -> List[Tuple[int, int]]:
+        """Free fixed variables for the Cartesian window `days x workers`."""
+        worker_ids = {workers} if isinstance(workers, int) else set(workers)
+        day_ids = {days} if isinstance(days, int) else set(days)
+        if not worker_ids or not day_ids:
+            return []
+
+        for worker_id in worker_ids:
+            if not (0 <= worker_id < self.instance.num_workers):
+                raise ValueError(
+                    f"invalid worker id {worker_id}; expected in [0, {self.instance.num_workers - 1}]"
+                )
+        for day_id in day_ids:
+            if not (0 <= day_id < self.instance.num_days):
+                raise ValueError(f"invalid day {day_id}; expected in [0, {self.instance.num_days - 1}]")
+
+        freed = [key for key in self.fixed_vars if key[0] in day_ids and key[1] in worker_ids]
+        for key in freed:
+            del self.fixed_vars[key]
+        return freed
+
     def repair_exact(
         self,
         model_instance: Any | None = None,
