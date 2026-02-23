@@ -16,21 +16,29 @@ def _default_score_function(
     number_of_conflicts_incumbent: int,
     number_of_conflicts_contender: int,
     temperature: float,
-) -> int:
-    """Return a discrete ALNS score using best/current/contender conflicts and SA."""
+    late_phase_threshold: int = 5,
+) -> tuple[int, bool]:
+    """Return `(score, accepted)` using best/current/contender conflicts and SA."""
+    early_phase = (number_of_conflicts_incumbent > late_phase_threshold)
+
     if number_of_conflicts_contender < number_of_conflicts_best:
-        return 33
+        score, accept = 33, True
     elif number_of_conflicts_contender < number_of_conflicts_incumbent:
-        return 9
+        score, accept = 9, True
     elif number_of_conflicts_contender == number_of_conflicts_incumbent:
-        return 3
-    
-    p = math.exp(- (number_of_conflicts_contender - number_of_conflicts_incumbent)/temperature)
-    return 3 if random.random() < p else 0
+        score, accept = 0, early_phase
+    else:
+        p = math.exp(
+            -(number_of_conflicts_contender - number_of_conflicts_incumbent) / temperature
+        )
+        score, accept = 0, early_phase and (random.random() < p)
+
+    return score, accept
+
 
 def compute_softmax(score: float, beta_softmax: float) -> float:
-    """ computes the unnormalized softmax exp-values"""
-    return math.exp(beta_softmax*score)
+    """Compute unnormalized softmax value."""
+    return math.exp(beta_softmax * score)
 
 
 
@@ -45,6 +53,7 @@ class MBandit:
     iterations_till_weight_update: int = 20
     reaction_factor: float = 0.1
     beta_softmax: float = 0.2
+    equal_move_allowed_freezeout: int = 5
     
     annealing_temperature: float = 5
     min_annealing_temperature: float = 0.7
@@ -56,11 +65,9 @@ class MBandit:
     minizinc_timeout_seconds: int = 30
     exploratory_timeout_seconds: float = 60
     exploration_after_stagnation: int = 5
-    acceptance_score: int = 3
     conflicts_best_solution: int = field(init=False)
     conflicts_current_solution: int = field(init=False)
-    score_function: Callable[[int, int, int, float], int] = _default_score_function
-    warmstart_instance: Optional[RWS.Instance] = None  # Not used by the LNS object yet.
+    score_function: Callable[[int, int, int, float, int], tuple[int, bool]] = _default_score_function
     destroy_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
     repair_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
     destroy_exploration_operator: Callable[[rws_lns], list[tuple[int, int]]] = field(init=False, repr=False)
@@ -77,13 +84,9 @@ class MBandit:
         init=False, repr=False
     )
     stagnation_rounds: int = 0
-    tabu: bool = False
 
     def __post_init__(self) -> None:
         """Validate configuration and initialize operators, weights, and LNS state."""
-        if self.warmstart_instance is None:
-            self.warmstart_instance = self.schedule.instance
-
         warmstart_conflicts = int(sum(self.schedule.count_total_violations().values()))
         self.conflicts_best_solution = warmstart_conflicts
         self.conflicts_current_solution = warmstart_conflicts
@@ -109,10 +112,10 @@ class MBandit:
             raise ValueError("minizinc_timeout_seconds must be > 0")
         if self.exploratory_timeout_seconds <= 0:
             raise ValueError("exploratory_timeout_seconds must be > 0")
-        if self.acceptance_score < 0:
-            raise ValueError("acceptance_score must be >= 0")
         if self.destroy_tabu_length <= 0:
             raise ValueError("destroy_tabu_length must be > 0")
+        if self.equal_move_allowed_freezeout < 0:
+            raise ValueError("equal_move_allowed_freezeout must be >= 0")
 
             
 
@@ -382,15 +385,15 @@ class MBandit:
             repair_failed = True
             repair_error = f"{type(exc).__name__}: {exc}"
 
+        contender_accepted = False
         if not repair_failed and lns.contender is not None:
             contender_conflicts = int(sum(lns.contender.count_total_violations().values()))
-            contender_score = int(
-                self.score_function(
-                    self.conflicts_best_solution,
-                    self.conflicts_current_solution,
-                    contender_conflicts,
-                    self.annealing_temperature,
-                )
+            contender_score, contender_accepted = self.score_function(
+                self.conflicts_best_solution,
+                self.conflicts_current_solution,
+                contender_conflicts,
+                self.annealing_temperature,
+                self.equal_move_allowed_freezeout,
             )
         else:
             repair_failed = True
@@ -398,6 +401,7 @@ class MBandit:
                 repair_error = "repair operator did not produce a contender schedule"
             contender_conflicts = incumbent_conflicts
             contender_score = 0
+            contender_accepted = False
         self.annealing_temperature = max(
             self.annealing_temperature * self.time_decay_annealing,
             self.min_annealing_temperature,
@@ -419,7 +423,7 @@ class MBandit:
                 self.operator_usage_counts.get(repair_key, 0) + 1
             )
 
-        accepted = (not repair_failed) and contender_score >= self.acceptance_score
+        accepted = (not repair_failed) and bool(contender_accepted)
         if accepted:
             self.schedule = lns.contender
             self.conflicts_current_solution = contender_conflicts
@@ -691,8 +695,8 @@ if __name__ == "__main__":
     base = Path(__file__).resolve().parent
     raw_example = input("Example number [1]: ").strip()
     example_number = 1 if raw_example == "" else int(raw_example)
-    if example_number < 0:
-        raise ValueError("example number must be >= 0")
+    if example_number < 1:
+        raise ValueError("example number must be >= 1")
 
     instance_path = base / "Instances1-50" / f"Example{example_number}.txt"
     if not instance_path.exists():
@@ -712,7 +716,7 @@ if __name__ == "__main__":
     destroy_ops: Dict[str, Callable[[rws_lns], list[tuple[int, int]]]] = {
         "destroy_worst_workers_10pct": _make_destroy_worst_workers(0.10),
         "destroy_worst_workers_20pct": _make_destroy_worst_workers(0.20),
-         "destroy_random_workers_20pct": _make_destroy_random_workers(0.20),
+        "destroy_random_workers_20pct": _make_destroy_random_workers(0.20),
         "destroy_worst_window_05pct": _make_destroy_worst_window(0.05),
         "destroy_worst_window_10pct": _make_destroy_worst_window(0.10),
         "destroy_worst_window_20pct": _make_destroy_worst_window(0.20),
