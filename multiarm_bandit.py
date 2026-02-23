@@ -35,26 +35,26 @@ def compute_softmax(score: float, beta_softmax: float) -> float:
 
 
 @dataclass
-class Bandit:
+class MBandit:
     """Configuration and operator container for a multiarm-bandit LNS loop."""
 
     instance: RWS.Instance
     schedule: RWS.Schedule
     weights_destroy: Optional[Dict[str, float]] = None
     weights_repair: Optional[Dict[str, float]] = None
-    iterations_till_weight_update: int = 15
-    reaction_factor: float = 0.15
-    beta_softmax: float = 0.5
+    iterations_till_weight_update: int = 20
+    reaction_factor: float = 0.1
+    beta_softmax: float = 0.2
     
     annealing_temperature: float = 5
     min_annealing_temperature: float = 0.7
     time_decay_annealing: float = 0.98
 
-    global_timeout_seconds: float = 150.0
+    global_timeout_seconds: float = 600.0
     model_path: str | Path | None = None
     solver_name: str = "chuffed"
-    minizinc_timeout_seconds: int = 10
-    exploratory_timeout_seconds: float = 30
+    minizinc_timeout_seconds: int = 30
+    exploratory_timeout_seconds: float = 60
     exploration_after_stagnation: int = 5
     acceptance_score: int = 3
     conflicts_best_solution: int = field(init=False)
@@ -712,14 +712,16 @@ if __name__ == "__main__":
     destroy_ops: Dict[str, Callable[[rws_lns], list[tuple[int, int]]]] = {
         "destroy_worst_workers_10pct": _make_destroy_worst_workers(0.10),
         "destroy_worst_workers_20pct": _make_destroy_worst_workers(0.20),
+         "destroy_random_workers_20pct": _make_destroy_random_workers(0.20),
+        "destroy_worst_window_05pct": _make_destroy_worst_window(0.05),
+        "destroy_worst_window_10pct": _make_destroy_worst_window(0.10),
         "destroy_worst_window_20pct": _make_destroy_worst_window(0.20),
-        "destroy_random_workers_20pct": _make_destroy_random_workers(0.20),
         "destroy_worst_days_10pct": _make_destroy_worst_days(0.10),
         "destroy_worst_days_20pct": _make_destroy_worst_days(0.20),
         "destroy_random_days_20pct": _make_destroy_random_days(0.20),
     }
 
-    mab = Bandit(
+    mab = MBandit(
         instance=instance,
         schedule=schedule,
         model_path=model_path,

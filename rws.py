@@ -449,38 +449,63 @@ class RWS:
             summary = self.detect_all_violations()
             totals = self.count_total_violations(summary)
             inst = self.instance
+            total_violations = sum(totals.values())
 
             if totals_only:
-                print(f"{'Total violations':.<40} {sum(totals.values()):>3}")
+                if total_violations == 0:
+                    print("No violations.")
+                    print("=" * 80 + "\n")
+                    return
+                print(f"{'Total violations':.<40} {total_violations:>3}")
                 print("=" * 80 + "\n")
             else:
-                print("Violation counts per worker:")
-                print("=" * 80)
-                for worker in range(inst.num_workers):
-                    print(
-                        f"  Worker {worker}: sequence={summary['sequence']['by_worker'][worker]:>2}  "
-                        f"min={summary['min']['by_worker'][worker]:>2}  "
-                        f"max={summary['max']['by_worker'][worker]:>2}"
-                    )
-                print("=" * 80 + "\n")
+                if total_violations == 0:
+                    print("No violations.")
+                    print("=" * 80 + "\n")
+                    return
 
-                print("Violation counts per day:")
-                print("=" * 80)
+                worker_lines: list[str] = []
+                for worker in range(inst.num_workers):
+                    seq = summary["sequence"]["by_worker"][worker]
+                    mn = summary["min"]["by_worker"][worker]
+                    mx = summary["max"]["by_worker"][worker]
+                    if seq + mn + mx > 0:
+                        worker_lines.append(
+                            f"  Worker {worker}: sequence={seq:>2}  min={mn:>2}  max={mx:>2}"
+                        )
+
+                if worker_lines:
+                    print("Violation counts per worker:")
+                    print("=" * 80)
+                    for line in worker_lines:
+                        print(line)
+                    print("=" * 80 + "\n")
+
+                day_lines: list[str] = []
                 for day in range(inst.num_days):
-                    print(
-                        f"  Day {day}: sequence={summary['sequence']['by_day'][day]:>2}  "
-                        f"min={summary['min']['by_day'][day]:>2}  "
-                        f"max={summary['max']['by_day'][day]:>2}  "
-                        f"required shifts={summary['required']['by_day'][day]:>2}"
-                    )
-                print("=" * 80 + "\n")
+                    seq = summary["sequence"]["by_day"][day]
+                    mn = summary["min"]["by_day"][day]
+                    mx = summary["max"]["by_day"][day]
+                    req = summary["required"]["by_day"][day]
+                    if seq + mn + mx + req > 0:
+                        day_lines.append(
+                            f"  Day {day}: sequence={seq:>2}  min={mn:>2}  max={mx:>2}  required shifts={req:>2}"
+                        )
+
+                if day_lines:
+                    print("Violation counts per day:")
+                    print("=" * 80)
+                    for line in day_lines:
+                        print(line)
+                    print("=" * 80 + "\n")
 
                 print("Total violated clauses:")
                 print("=" * 80)
                 for key, value in totals.items():
-                    print(f"  {key:.<40} {value:>3}")
+                    if value > 0:
+                        print(f"  {key:.<40} {value:>3}")
                 print("=" * 80)
-                print(f"  {'Total violations':.<40} {sum(totals.values()):>3}")
+                print(f"  {'Total violations':.<40} {total_violations:>3}")
                 print("=" * 80 + "\n")
 
 
