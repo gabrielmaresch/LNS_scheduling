@@ -302,6 +302,9 @@ def solve_rws_lns(
         "status": str(result.status),
         "solve_time_sec": elapsed,
         "has_solution": result.status.has_solution(),
+        "objective": (
+            float(result.objective) if result.objective is not None else None
+        ),
     }
 
     lns.contender = None

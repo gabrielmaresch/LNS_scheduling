@@ -518,6 +518,7 @@ class rws_lns:
     instance: "RWS.Instance"
     incumbent: "RWS.Schedule"
     contender: Optional["RWS.Schedule"] = None
+    contender_objective: Optional[float] = None
     features: Any = None
     fixed_vars: Dict[Tuple[int, int], int] = field(default_factory=dict)
     _cached_model_instances: Dict[Tuple[Path, str, bool], Any] = field(
@@ -635,6 +636,7 @@ class rws_lns:
                 self._cached_model_instances[cache_key] = model_instance
         else:
             self._cached_model_instances[cache_key] = model_instance
+        self.contender_objective = None
         summary = solve_rws_lns(
             lns=self,
             model_instance=model_instance,
@@ -642,6 +644,8 @@ class rws_lns:
         )
         if not summary.get("has_solution") or self.contender is None:
             raise RuntimeError(f"MiniZinc repair failed with status: {summary['status']}")
+        objective = summary.get("objective")
+        self.contender_objective = float(objective) if objective is not None else None
 
         self._initialize_fixed_vars(self.contender)
 

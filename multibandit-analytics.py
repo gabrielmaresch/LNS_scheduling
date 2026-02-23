@@ -30,6 +30,8 @@ class IterationRecord:
     step_runtime: float
     incumbent_violations: int
     contender_violations: int
+    incumbent_objective: Optional[float]
+    contender_objective: Optional[float]
     accepted: bool
     temperature: Optional[float]
 
@@ -40,6 +42,15 @@ def _parse_bool(value: str) -> bool:
     if value == "False":
         return False
     raise ValueError(f"invalid boolean value: {value}")
+
+
+def _parse_optional_float(value: Optional[str]) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 def parse_log(
@@ -80,6 +91,8 @@ def parse_log(
                 step_runtime=float(fields["step_runtime"].rstrip("s")),
                 incumbent_violations=int(fields["incumbent_violations"]),
                 contender_violations=int(fields["contender_violations"]),
+                incumbent_objective=_parse_optional_float(fields.get("incumbent_objective")),
+                contender_objective=_parse_optional_float(fields.get("contender_objective")),
                 accepted=_parse_bool(fields["accepted"]),
                 temperature=(
                     float(fields["temperature"])
@@ -187,6 +200,7 @@ def plot_analytics(
     iterations = [record.iteration for record in records]
     runtimes = [record.step_runtime for record in records]
     contender_violations = [record.contender_violations for record in records]
+    contender_objectives = [record.contender_objective for record in records]
 
     accepted_trajectory: List[int] = []
     current = records[0].incumbent_violations
@@ -194,6 +208,15 @@ def plot_analytics(
         if record.accepted:
             current = record.contender_violations
         accepted_trajectory.append(current)
+
+    accepted_objective_trajectory: List[Optional[float]] = []
+    current_obj = records[0].incumbent_objective
+    for record in records:
+        if record.accepted and record.contender_objective is not None:
+            current_obj = record.contender_objective
+        accepted_objective_trajectory.append(current_obj)
+
+    has_objective = any(value is not None for value in contender_objectives)
 
     explicit_temps = [record.temperature for record in records]
     if all(temp is not None for temp in explicit_temps):
@@ -240,7 +263,34 @@ def plot_analytics(
         linestyle="--",
         label="Contender violations",
     )
-    ax_v.set_ylabel("Violations")
+    if has_objective:
+        ax_v.plot(
+            iterations,
+            accepted_objective_trajectory,
+            color="tab:green",
+            linewidth=2.0,
+            label="Accepted objective",
+        )
+        ax_v.plot(
+            iterations,
+            contender_objectives,
+            color="tab:green",
+            alpha=0.35,
+            linewidth=1.2,
+            linestyle="--",
+            label="Contender objective",
+        )
+    else:
+        ax_v.text(
+            0.01,
+            0.92,
+            "Objective not present in log",
+            transform=ax_v.transAxes,
+            ha="left",
+            va="top",
+            fontsize=9,
+        )
+    ax_v.set_ylabel("Counts")
     ax_v.grid(alpha=0.25)
 
     ax_rt = ax_v.twinx()
@@ -273,7 +323,7 @@ def plot_analytics(
         handles.extend(h)
         labels.extend(l)
     ax_v.legend(handles, labels, loc="upper right")
-    ax_v.set_title("Violations and Runtime with Temperature Overlay")
+    ax_v.set_title("Violations and Objective with Runtime and Temperature Overlay")
 
     ax_dw = axes[1]
     if destroy_update_iters:
@@ -376,7 +426,7 @@ def plot_analytics(
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Parse multiarm_bandit.log and plot violations/runtime, "
+            "Parse multiarm_bandit.log and plot violations/objective/runtime, "
             "weights trajectory, and temperature."
         )
     )

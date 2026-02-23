@@ -12,24 +12,24 @@ from rws import RWS, rws_lns
 
 
 def _default_score_function(
-    number_of_conflicts_best: int,
-    number_of_conflicts_incumbent: int,
-    number_of_conflicts_contender: int,
+    best_objective: float,
+    incumbent_objective: float,
+    contender_objective: float,
     temperature: float,
     late_phase_threshold: int = 5,
 ) -> tuple[int, bool]:
-    """Return `(score, accepted)` using best/current/contender conflicts and SA."""
-    early_phase = (number_of_conflicts_incumbent > late_phase_threshold)
+    """Return `(score, accepted)` using best/current/contender objective values and SA."""
+    early_phase = incumbent_objective > float(late_phase_threshold)
 
-    if number_of_conflicts_contender < number_of_conflicts_best:
+    if contender_objective < best_objective:
         score, accept = 33, True
-    elif number_of_conflicts_contender < number_of_conflicts_incumbent:
+    elif contender_objective < incumbent_objective:
         score, accept = 9, True
-    elif number_of_conflicts_contender == number_of_conflicts_incumbent:
+    elif contender_objective == incumbent_objective:
         score, accept = 0, early_phase
     else:
         p = math.exp(
-            -(number_of_conflicts_contender - number_of_conflicts_incumbent) / temperature
+            -(contender_objective - incumbent_objective) / temperature
         )
         score, accept = 0, early_phase and (random.random() < p)
 
@@ -62,12 +62,14 @@ class MBandit:
     global_timeout_seconds: float = 600.0
     model_path: str | Path | None = None
     solver_name: str = "chuffed"
-    minizinc_timeout_seconds: int = 30
-    exploratory_timeout_seconds: float = 60
-    exploration_after_stagnation: int = 5
+    minizinc_timeout_seconds: int = 50
+    exploratory_timeout_seconds: float = 100
+    exploration_after_stagnation: int = 10
     conflicts_best_solution: int = field(init=False)
     conflicts_current_solution: int = field(init=False)
-    score_function: Callable[[int, int, int, float, int], tuple[int, bool]] = _default_score_function
+    objective_best_solution: float = field(init=False)
+    objective_current_solution: float = field(init=False)
+    score_function: Callable[[float, float, float, float, int], tuple[int, bool]] = _default_score_function
     destroy_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
     repair_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
     destroy_exploration_operator: Callable[[rws_lns], list[tuple[int, int]]] = field(init=False, repr=False)
@@ -90,6 +92,9 @@ class MBandit:
         warmstart_conflicts = int(sum(self.schedule.count_total_violations().values()))
         self.conflicts_best_solution = warmstart_conflicts
         self.conflicts_current_solution = warmstart_conflicts
+        # Warmstart objective is unknown until a repair solve returns a value.
+        self.objective_best_solution = float("inf")
+        self.objective_current_solution = float("inf")
 
         if self.iterations_till_weight_update <= 0:
             raise ValueError("iterations_till_weight_update must be > 0")
@@ -282,47 +287,37 @@ class MBandit:
 
     def _update_operator_weights(self) -> None:
         """Update destroy/repair weights from tracked average scores."""
-        destroy_targets: Dict[str, float] = {}
-        destroy_total = 0.0
-        for name in self.destroy_operators:
-            key = self._operator_key("destroy", name)
-            usage = self.operator_usage_counts.get(key, 0)
-            score_sum = self.operator_score_sums.get(key, 0.0)
-            avg_score = score_sum / usage if usage > 0 else 0.0
-            destroy_targets[name] = compute_softmax(avg_score, self.beta_softmax)
-            destroy_total += destroy_targets[name]
-        if destroy_total <= 0.0:
-            equal_destroy = 1.0 / len(self.destroy_operators)
-            destroy_targets = {name: equal_destroy for name in self.destroy_operators}
-        else:
-            for name in destroy_targets:
-                destroy_targets[name] /= destroy_total
+        targets_by_kind: Dict[str, Dict[str, float]] = {}
+        for kind, operators in (
+            ("destroy", self.destroy_operators),
+            ("repair", self.repair_operators),
+        ):
+            targets: Dict[str, float] = {}
+            total = 0.0
+            for name in operators:
+                key = self._operator_key(kind, name)
+                usage = self.operator_usage_counts.get(key, 0)
+                score_sum = self.operator_score_sums.get(key, 0.0)
+                avg_score = score_sum / usage if usage > 0 else 0.0
+                targets[name] = compute_softmax(avg_score, self.beta_softmax)
+                total += targets[name]
 
-        repair_targets: Dict[str, float] = {}
-        repair_total = 0.0
-        for name in self.repair_operators:
-            key = self._operator_key("repair", name)
-            usage = self.operator_usage_counts.get(key, 0)
-            score_sum = self.operator_score_sums.get(key, 0.0)
-            avg_score = score_sum / usage if usage > 0 else 0.0
-            repair_targets[name] = compute_softmax(avg_score, self.beta_softmax)
-            repair_total += repair_targets[name]
-        if repair_total <= 0.0:
-            equal_repair = 1.0 / len(self.repair_operators)
-            repair_targets = {name: equal_repair for name in self.repair_operators}
-        else:
-            for name in repair_targets:
-                repair_targets[name] /= repair_total
+            if total <= 0.0:
+                equal_weight = 1.0 / len(operators)
+                targets = {name: equal_weight for name in operators}
+            else:
+                for name in targets:
+                    targets[name] /= total
+            targets_by_kind[kind] = targets
 
-        for name, old_weight in list(self.weights_destroy.items()):
-            self.weights_destroy[name] = (1 - self.reaction_factor) * float(old_weight) + (
-                self.reaction_factor * destroy_targets[name]
-            )
-
-        for name, old_weight in list(self.weights_repair.items()):
-            self.weights_repair[name] = (1 - self.reaction_factor) * float(old_weight) + (
-                self.reaction_factor * repair_targets[name]
-            )
+        for weights, targets in (
+            (self.weights_destroy, targets_by_kind["destroy"]),
+            (self.weights_repair, targets_by_kind["repair"]),
+        ):
+            for name, old_weight in list(weights.items()):
+                weights[name] = (1 - self.reaction_factor) * float(old_weight) + (
+                    self.reaction_factor * targets[name]
+                )
 
         self._reset_operator_tracking()
 
@@ -335,6 +330,7 @@ class MBandit:
         lns.contender = None
 
         incumbent_conflicts = int(sum(self.schedule.count_total_violations().values()))
+        incumbent_objective = self.objective_current_solution
 
         use_exploration = self.stagnation_rounds >= self.exploration_after_stagnation
         if use_exploration:
@@ -385,23 +381,28 @@ class MBandit:
             repair_failed = True
             repair_error = f"{type(exc).__name__}: {exc}"
 
+        contender_conflicts = incumbent_conflicts
+        contender_objective = incumbent_objective
+        contender_score = 0
         contender_accepted = False
         if not repair_failed and lns.contender is not None:
             contender_conflicts = int(sum(lns.contender.count_total_violations().values()))
-            contender_score, contender_accepted = self.score_function(
-                self.conflicts_best_solution,
-                self.conflicts_current_solution,
-                contender_conflicts,
-                self.annealing_temperature,
-                self.equal_move_allowed_freezeout,
-            )
-        else:
+            contender_objective_raw = getattr(lns, "contender_objective", None)
+            if contender_objective_raw is None:
+                repair_failed = True
+                repair_error = "repair operator did not return MiniZinc objective value"
+            else:
+                contender_objective = float(contender_objective_raw)
+                contender_score, contender_accepted = self.score_function(
+                    self.objective_best_solution,
+                    self.objective_current_solution,
+                    contender_objective,
+                    self.annealing_temperature,
+                    self.equal_move_allowed_freezeout,
+                )
+        elif repair_error is None:
             repair_failed = True
-            if repair_error is None:
-                repair_error = "repair operator did not produce a contender schedule"
-            contender_conflicts = incumbent_conflicts
-            contender_score = 0
-            contender_accepted = False
+            repair_error = "repair operator did not produce a contender schedule"
         self.annealing_temperature = max(
             self.annealing_temperature * self.time_decay_annealing,
             self.min_annealing_temperature,
@@ -410,18 +411,13 @@ class MBandit:
         if not use_exploration:
             destroy_key = self._operator_key("destroy", destroy_name)
             repair_key = self._operator_key("repair", repair_name)
-            self.operator_score_sums[destroy_key] = (
-                self.operator_score_sums.get(destroy_key, 0.0) + float(contender_score)
-            )
-            self.operator_usage_counts[destroy_key] = (
-                self.operator_usage_counts.get(destroy_key, 0) + 1
-            )
-            self.operator_score_sums[repair_key] = (
-                self.operator_score_sums.get(repair_key, 0.0) + float(contender_score)
-            )
-            self.operator_usage_counts[repair_key] = (
-                self.operator_usage_counts.get(repair_key, 0) + 1
-            )
+            for key in (destroy_key, repair_key):
+                self.operator_score_sums[key] = (
+                    self.operator_score_sums.get(key, 0.0) + float(contender_score)
+                )
+                self.operator_usage_counts[key] = (
+                    self.operator_usage_counts.get(key, 0) + 1
+                )
 
         accepted = (not repair_failed) and bool(contender_accepted)
         if accepted:
@@ -429,9 +425,12 @@ class MBandit:
             self.conflicts_current_solution = contender_conflicts
             if contender_conflicts < self.conflicts_best_solution:
                 self.conflicts_best_solution = contender_conflicts
+            self.objective_current_solution = contender_objective
+            if contender_objective < self.objective_best_solution:
+                self.objective_best_solution = contender_objective
         if use_exploration:
             self.stagnation_rounds = 0
-        elif self.conflicts_current_solution < incumbent_conflicts:
+        elif self.objective_current_solution < incumbent_objective:
             self.stagnation_rounds = 0
         else:
             self.stagnation_rounds += 1
@@ -459,6 +458,8 @@ class MBandit:
             "iteration": self.lns_loop_counter,
             "incumbent_conflicts": incumbent_conflicts,
             "contender_conflicts": contender_conflicts,
+            "incumbent_objective": incumbent_objective,
+            "contender_objective": contender_objective,
             "contender_score": contender_score,
             "accepted": accepted,
             "selected_destroy_operator": destroy_name,
@@ -788,8 +789,12 @@ if __name__ == "__main__":
                 f"step_runtime={step_runtime:.3f}s "
                 f"destroy={step['selected_destroy_operator']} "
                 f"repair={step['selected_repair_operator']} "
+                f"violation_metric=count_total_violations "
                 f"incumbent_violations={step['incumbent_conflicts']} "
                 f"contender_violations={step['contender_conflicts']} "
+                f"objective_metric=minizinc_objective "
+                f"incumbent_objective={step['incumbent_objective']} "
+                f"contender_objective={step['contender_objective']} "
                 f"score={step['contender_score']} "
                 f"accepted={step['accepted']} "
                 f"repair_failed={step['repair_failed']} "
