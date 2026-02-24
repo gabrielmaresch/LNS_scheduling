@@ -13,6 +13,14 @@ from rws import RWS, rws_lns
 from rws_instance_loader import load_instance_and_schedule
 import matplotlib.pyplot as plt
 
+"""
+Think about reward function. 
+Maybe we shouldn't train temperature and just keep it as in bandit
+Minizinc time?
+Code some severity suggestions? (eg, start low, high if high stagnation etc)
+"""
+
+
 # ============================================================
 # ACTOR-CRITIC NETWORK (PPO)
 # ============================================================
@@ -21,13 +29,13 @@ class ActorCritic(nn.Module):
 
     Actions:
     - destroy, repair: categorical
-    - severity: categorical with 10 bins (10%-100%)
-    - temperature: categorical with 50 bins (0.1 - 5.0)
+    - severity: categorical with 10 bins (10%-100%) --> as in the paper
+    - temperature: categorical with 50 bins (0.1 - 5.0) --> as in the paper
     """
     def __init__(self, state_dim, n_destroy, n_repair, n_severity=10, n_temp=50):
         super().__init__()
         self.shared = nn.Sequential(
-            nn.Linear(state_dim, 64),
+            nn.Linear(state_dim, 64), # --> as in the paper
             nn.ReLU(),
             nn.Linear(64, 64),
             nn.ReLU(),
@@ -461,8 +469,9 @@ class drl_alns:
 
     # --------------------------------------------------------
     def train(self, iterations=2000):
+
         state = self._get_state()
-        # Logger for plotting
+
         log = {
             "destroy": [],
             "repair": [],
@@ -479,160 +488,174 @@ class drl_alns:
             "accepted_count": [],
             "cumulative_rewards": [],
         }
-        
+
         print("\n" + "="*150)
         print(f"{'Training DRL-ALNS with PPO':^150}")
         print("="*150 + "\n")
-        
-        for it in range(iterations):
-            states_list = []
-            actions_discrete_list = []
-            actions_continuous_list = []
-            rewards = []
-            log_probs = []
-            values = []
-            cumulative_reward = 0.0
-            accepted_count = 0
-            
-            print(f"\n{'-'*150}")
-            print(f"EPOCH {it+1:3d}/{iterations} | Instance: {self.instance.num_workers} workers, {self.instance.num_days} days")
-            print(f"{'-'*150}\n")
-            
-            for step_i in range(self.rollout_length):
-                a_d, a_r, a_sev, a_temp, log_p, value = self._select_action(state)
-                next_state, reward = self.step(a_d, a_r, a_sev, a_temp, cumulative_reward)
 
-                # Map bins to actionable floats for logging
-                severity = (float(a_sev) + 1.0) / 10.0
-                temperature = 0.1 + (float(a_temp) / 49.0) * (5.0 - 0.1)
+        interrupted = False
 
-                if reward > -1.0:  # Count accepted moves
-                    accepted_count += 1
-                cumulative_reward += reward
+        try:
 
-                # Log metrics
-                log["destroy"].append(self.destroy_names[a_d])
-                log["repair"].append(self.repair_names[a_r])
-                log["severity"].append(severity)
-                log["temperature"].append(temperature)
-                log["reward"].append(reward)
-                log["current_conflicts"].append(self.current_conflicts)
-                log["best_conflicts"].append(self.best_conflicts)
-                log["stagnation"].append(self.stagnation)
+            for it in range(iterations):
 
-                # Store for PPO update (destroy, repair, severity_bin, temp_bin)
-                states_list.append(state)
-                actions_discrete_list.append([a_d, a_r, a_sev, a_temp])
-                rewards.append(reward)
-                log_probs.append(log_p)
-                values.append(value)
+                states_list = []
+                actions_discrete_list = []
+                rewards = []
+                log_probs = []
+                values = []
 
-                state = next_state
-            
-            episode_return = sum(rewards)
-            acceptance_rate = accepted_count / self.rollout_length * 100
-            log["episode_return"].append(episode_return)
-            log["accepted_count"].append(accepted_count)
-            log["cumulative_rewards"].append(cumulative_reward)
-            
-            # ====== EPOCH SUMMARY ======
-            print(f"\n{'-'*150}")
-            print(f"EPOCH {it+1:3d} SUMMARY")
-            print(f"{'-'*150}")
-            
-            exploration_status = "🔍 EXPLORATION PHASE" if self.use_exploration_phase else "🎯 NORMAL"
-            print(
-                f"  Best Conflicts:      {self.best_conflicts:3d}\n"
-                f"  Current Conflicts:   {self.current_conflicts:3d}\n"
-                f"  Stagnation Counter:  {self.stagnation:3d}  ({exploration_status})\n"
-                f"  Episode Return:      {episode_return:+.3f}\n"
-                f"  Cumulative Reward:   {cumulative_reward:+.3f}\n"
-                f"  Acceptance Rate:     {acceptance_rate:.1f}% ({accepted_count}/{self.rollout_length})\n"
-            )
-            
-            print()
-            
-            # ---- Prepare data for PPO update ----
-            states = torch.from_numpy(np.array(states_list, dtype=np.float32))
-            actions_discrete = torch.tensor(actions_discrete_list, dtype=torch.long)
-            old_log_probs = torch.stack(log_probs).detach()
-            values = torch.stack(values)
-            
-            # ===== Compute GAE advantages and returns =====
-            # values: tensor of shape [T]
-            values_t = values.detach().squeeze()
-            T = len(rewards)
+                cumulative_reward = 0.0
+                accepted_count = 0
 
-            # compute last value for bootstrap
-            with torch.no_grad():
-                _, _, _, _, last_v = self.model(torch.from_numpy(state).float().unsqueeze(0))
-                last_value = last_v.squeeze().item()
+                print(f"\n{'-'*150}")
+                print(f"EPOCH {it+1:3d}/{iterations} | Instance: {self.instance.num_workers} workers, {self.instance.num_days} days")
+                print(f"{'-'*150}\n")
 
-            rewards_t = torch.tensor(rewards, dtype=torch.float32)
-            advantages = torch.zeros(T, dtype=torch.float32)
-            gae = 0.0
-            for t in reversed(range(T)):
-                next_value = last_value if t == T - 1 else values_t[t + 1].item()
-                delta = rewards_t[t].item() + self.gamma * next_value - values_t[t].item()
-                gae = delta + self.gamma * self.gae_lambda * gae
-                advantages[t] = gae
+                for step_i in range(self.rollout_length):
 
-            returns = advantages + values_t
+                    a_d, a_r, a_sev, a_temp, log_p, value = self._select_action(state)
 
-            # Normalize advantages and returns for stability
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-            returns_normalized = (returns - returns.mean()) / (returns.std() + 1e-8)
-            
-            # PPO update with normalized returns
-            pl, vl, ent = self._ppo_update(
-                states,
-                actions_discrete,
-                old_log_probs,
-                returns_normalized,
-                advantages
-            )
-            log["policy_loss"].append(pl)
-            log["value_loss"].append(vl)
-            log["entropy"].append(ent)
-            
-            print(
-                f"  Policy Loss:         {pl:.6f}\n"
-                f"  Value Loss:          {vl:.6f}\n"
-                f"  Entropy:             {ent:.6f}\n"
-            )
-            print(f"{'-'*150}\n")
-            
-            # Record metrics
-            self.metrics_monitor.record(
-                epoch=it + 1,
-                best_conflicts=self.best_conflicts,
-                current_conflicts=self.current_conflicts,
-                episode_return=episode_return,
-                cumulative_reward=cumulative_reward,
-                acceptance_rate=acceptance_rate,
-                policy_loss=pl,
-                value_loss=vl,
-                entropy=ent,
-                stagnation=self.stagnation
-            )
-            
-            # Early stopping conditions
-            if self.best_conflicts == 0:
-                print(f"\n{'*'*20} SOLVED with zero conflicts at iteration {it+1}! {'*'*20}\n")
-                break
-            if self.stagnation >= 100:
-                print(f"\n{'!'*20} Stopping: stagnation >= 100 at iteration {it+1} {'!'*20}\n")
-                break
-        
-        print("\n" + "="*150)
-        print(f"Training completed. Best solution: {self.best_conflicts} conflicts")
-        print("="*150 + "\n")
-        
-        # Save metrics
-        self.metrics_monitor.save_csv("drl_alns_training_metrics.csv")
-        
-        return self.schedule, log
+                    # ⚠️ This is where Ctrl+C typically happens (MiniZinc)
+                    next_state, reward = self.step(a_d, a_r, a_sev, a_temp, cumulative_reward)
 
+                    severity = (float(a_sev) + 1.0) / 10.0
+                    temperature = 0.1 + (float(a_temp) / 49.0) * (5.0 - 0.1)
+
+                    if reward > -1.0:
+                        accepted_count += 1
+
+                    cumulative_reward += reward
+
+                    # Logging
+                    log["destroy"].append(self.destroy_names[a_d])
+                    log["repair"].append(self.repair_names[a_r])
+                    log["severity"].append(severity)
+                    log["temperature"].append(temperature)
+                    log["reward"].append(reward)
+                    log["current_conflicts"].append(self.current_conflicts)
+                    log["best_conflicts"].append(self.best_conflicts)
+                    log["stagnation"].append(self.stagnation)
+
+                    # Store for PPO
+                    states_list.append(state)
+                    actions_discrete_list.append([a_d, a_r, a_sev, a_temp])
+                    rewards.append(reward)
+                    log_probs.append(log_p)
+                    values.append(value)
+
+                    state = next_state
+
+                episode_return = sum(rewards)
+                acceptance_rate = accepted_count / self.rollout_length * 100
+
+                log["episode_return"].append(episode_return)
+                log["accepted_count"].append(accepted_count)
+                log["cumulative_rewards"].append(cumulative_reward)
+
+                print(f"\n{'-'*150}")
+                print(f"EPOCH {it+1:3d} SUMMARY")
+                print(f"{'-'*150}")
+
+                exploration_status = "🔍 EXPLORATION PHASE" if self.use_exploration_phase else "🎯 NORMAL"
+
+                print(
+                    f"  Best Conflicts:      {self.best_conflicts:3d}\n"
+                    f"  Current Conflicts:   {self.current_conflicts:3d}\n"
+                    f"  Stagnation Counter:  {self.stagnation:3d}  ({exploration_status})\n"
+                    f"  Episode Return:      {episode_return:+.3f}\n"
+                    f"  Cumulative Reward:   {cumulative_reward:+.3f}\n"
+                    f"  Acceptance Rate:     {acceptance_rate:.1f}% ({accepted_count}/{self.rollout_length})\n"
+                )
+
+                # ==== Prepare PPO tensors ====
+                states = torch.from_numpy(np.array(states_list, dtype=np.float32))
+                actions_discrete = torch.tensor(actions_discrete_list, dtype=torch.long)
+                old_log_probs = torch.stack(log_probs).detach()
+                values = torch.stack(values)
+
+                # ===== GAE =====
+                values_t = values.detach().squeeze()
+                T = len(rewards)
+
+                with torch.no_grad():
+                    _, _, _, _, last_v = self.model(torch.from_numpy(state).float().unsqueeze(0))
+                    last_value = last_v.squeeze().item()
+
+                rewards_t = torch.tensor(rewards, dtype=torch.float32)
+                advantages = torch.zeros(T, dtype=torch.float32)
+
+                gae = 0.0
+                for t in reversed(range(T)):
+                    next_value = last_value if t == T - 1 else values_t[t + 1].item()
+                    delta = rewards_t[t].item() + self.gamma * next_value - values_t[t].item()
+                    gae = delta + self.gamma * self.gae_lambda * gae
+                    advantages[t] = gae
+
+                returns = advantages + values_t
+
+                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+                returns_normalized = (returns - returns.mean()) / (returns.std() + 1e-8)
+
+                pl, vl, ent = self._ppo_update(
+                    states,
+                    actions_discrete,
+                    old_log_probs,
+                    returns_normalized,
+                    advantages
+                )
+
+                log["policy_loss"].append(pl)
+                log["value_loss"].append(vl)
+                log["entropy"].append(ent)
+
+                print(
+                    f"  Policy Loss:         {pl:.6f}\n"
+                    f"  Value Loss:          {vl:.6f}\n"
+                    f"  Entropy:             {ent:.6f}\n"
+                )
+                print(f"{'-'*150}\n")
+
+                # Record metrics
+                self.metrics_monitor.record(
+                    epoch=it + 1,
+                    best_conflicts=self.best_conflicts,
+                    current_conflicts=self.current_conflicts,
+                    episode_return=episode_return,
+                    cumulative_reward=cumulative_reward,
+                    acceptance_rate=acceptance_rate,
+                    policy_loss=pl,
+                    value_loss=vl,
+                    entropy=ent,
+                    stagnation=self.stagnation
+                )
+
+                # Early stopping
+                if self.best_conflicts == 0:
+                    print(f"\n{'*'*20} SOLVED with zero conflicts at iteration {it+1}! {'*'*20}\n")
+                    break
+
+                if self.stagnation >= 100:
+                    print(f"\n{'!'*20} Stopping: stagnation >= 100 at iteration {it+1} {'!'*20}\n")
+                    break
+
+        except KeyboardInterrupt:
+            interrupted = True
+            print("\n" + "!"*150)
+            print("⚠ TRAINING INTERRUPTED BY USER (Ctrl+C)")
+            print("Returning best-so-far solution.")
+            print("!"*150)
+
+        finally:
+
+            print("\n" + "="*150)
+            print(f"Training completed. Best solution: {self.best_conflicts} conflicts")
+            print("="*150 + "\n")
+
+            self.metrics_monitor.save_csv("drl_alns_training_metrics.csv")
+
+            return self.schedule, log
+    
 # =========================
 # DESTROY / REPAIR HELPERS
 # =========================
@@ -869,8 +892,17 @@ if __name__ == "__main__":
         destroy_operators=destroy_ops,
         repair_operators=repair_ops,
     )
-    final_schedule, log = solver.train(iterations=2000)
-    plot_training(log)
+    
+    try:
+        final_schedule, log = solver.train(iterations=2000)
+    except KeyboardInterrupt:
+        print("Interrupted during training call.")
+        final_schedule = solver.schedule
+        log = {}
+
     print("\nFinal schedule:")
     final_schedule.display_schedule()
     final_schedule.display_violations()
+
+    if log:
+        plot_training(log)
