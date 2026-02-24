@@ -586,8 +586,8 @@ class drl_alns:
         
         return last_policy, last_value, last_entropy
 
-    # --------------------------------------------------------
-    def train(self, iterations=2000):
+    # ------------------------------------------------------
+    def train(self, iterations=2000, checkpoint_path: str | Path | None = None):
 
         state = self._get_state()
 
@@ -780,7 +780,27 @@ class drl_alns:
                 f"{self.best_objective if math.isfinite(self.best_objective) else None}"
             )
 
+            # ======= Save the result of the training run 
             self.metrics_monitor.save_csv("drl_alns_training_metrics.csv")
+            checkpoint = (
+                Path(checkpoint_path)
+                if checkpoint_path is not None
+                else Path(__file__).resolve().parent / "drl_ppo_checkpoint.pt"
+            )
+            checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(
+                {
+                    "model_state_dict": self.model.state_dict(),
+                    "optimizer_state_dict": self.optimizer.state_dict(),
+                    "destroy_names": self.destroy_names,
+                    "repair_names": self.repair_names,
+                    "state_dim": self.state_dim,
+                    "best_objective": self.best_objective,
+                    "current_objective": self.current_objective,
+                },
+                checkpoint,
+            )
+            print(f"saved_checkpoint=True path={checkpoint}")
 
             return self.schedule, log
     
@@ -968,7 +988,7 @@ if __name__ == "__main__":
     )
     
     try:
-        final_schedule, log = solver.train(iterations=2000)
+        final_schedule, log = solver.train(iterations=500)
     except KeyboardInterrupt:
         print("Interrupted during training call.")
         final_schedule = solver.schedule

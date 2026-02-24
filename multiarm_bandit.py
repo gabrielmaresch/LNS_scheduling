@@ -62,7 +62,7 @@ class MBandit:
     min_annealing_temperature: float = 0.7
     time_decay_annealing: float = 0.98
 
-    global_timeout_seconds: float = 150.0
+    global_timeout_seconds: float = 300.0
     model_path: str | Path | None = None
     minizinc_timeout_seconds: int = 50
    
