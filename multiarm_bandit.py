@@ -53,7 +53,7 @@ class MBandit:
     iterations_till_weight_update: int = 20
     reaction_factor: float = 0.1
     beta_softmax: float = 0.2
-    equal_move_allowed_freezeout: int = 5
+    equal_move_allowed_freezeout: int = 10
     
     annealing_temperature: float = 5
     min_annealing_temperature: float = 0.7
@@ -696,8 +696,8 @@ if __name__ == "__main__":
     base = Path(__file__).resolve().parent
     raw_example = input("Example number [1]: ").strip()
     example_number = 1 if raw_example == "" else int(raw_example)
-    if example_number < 1:
-        raise ValueError("example number must be >= 1")
+    if example_number < 0:
+        raise ValueError("example number must be >= 0")
 
     instance_path = base / "Instances1-50" / f"Example{example_number}.txt"
     if not instance_path.exists():
