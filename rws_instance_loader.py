@@ -125,14 +125,21 @@ def parse_instance_file(file_path: str | Path, cyclicity: bool = True) -> RWS.In
     )
 
 
-def initialize_schedule(instance: RWS.Instance) -> RWS.Schedule:
-    """Create a randomized initial schedule that satisfies daily shift requirements."""
+def initialize_schedule(
+    instance: RWS.Instance,
+    initial_schedule: str = "random",
+) -> RWS.Schedule:
+    """Create an initial schedule (`random` or `round_robin`) that meets day shift requirements."""
+    mode = initial_schedule.strip().lower()
+    if mode not in {"random", "round_robin"}:
+        raise ValueError("initial_schedule must be 'random' or 'round_robin'")
+
     num_days = instance.num_days
     num_workers = instance.num_workers
     num_shifts = len(instance.shift_names) - 1
 
     assignment = [[0 for _ in range(num_workers)] for _ in range(num_days)]
-    workers = list(range(num_workers))
+    base_workers = list(range(num_workers))
     required_by_shift = [instance.required_number_of_shifts.get(shift_id, 0) for shift_id in range(1, num_shifts + 1)]
 
     for day in range(num_days):
@@ -144,24 +151,33 @@ def initialize_schedule(instance: RWS.Instance) -> RWS.Schedule:
                 f"Infeasible day {day}: requires {total_required} workers, only {num_workers} available"
             )
 
-        random.shuffle(workers)
+        if mode == "random":
+            worker_order = base_workers[:]
+            random.shuffle(worker_order)
+        else:
+            start = day % num_workers
+            worker_order = base_workers[start:] + base_workers[:start]
         cursor = 0
 
         for shift_id in range(1, num_shifts + 1):
             required = required_by_shift[shift_id - 1]
             required_on_day = required[day] if not isinstance(required, int) else required
             end = cursor + required_on_day
-            for worker in workers[cursor:end]:
+            for worker in worker_order[cursor:end]:
                 assignment[day][worker] = shift_id
             cursor = end
 
     return RWS.Schedule(instance=instance, assignment=assignment)
 
 
-def load_instance_and_schedule(file_path: str | Path, cyclicity: bool = True) -> Tuple[RWS.Instance, RWS.Schedule]:
-    """Parse an instance file and build its default initial schedule."""
+def load_instance_and_schedule(
+    file_path: str | Path,
+    cyclicity: bool = True,
+    initial_schedule: str = "random",
+) -> Tuple[RWS.Instance, RWS.Schedule]:
+    """Parse instance and build initial schedule (`random` or `round_robin`, default `random`)."""
     instance = parse_instance_file(file_path=file_path, cyclicity=cyclicity)
-    schedule = initialize_schedule(instance)
+    schedule = initialize_schedule(instance=instance, initial_schedule=initial_schedule)
     return instance, schedule
 
 
@@ -180,7 +196,8 @@ if __name__ == "__main__":
     instance, schedule = load_instance_and_schedule(
         file_path=instance_path,
         cyclicity=True,
+        initial_schedule="random",
     )
     print(f"Loaded: {instance_path}")
     schedule.display_schedule()
-    schedule.display_violations(totals_only=True)
+    schedule.display_validity()

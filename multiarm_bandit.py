@@ -66,8 +66,6 @@ class MBandit:
     model_path: str | Path | None = None
     minizinc_timeout_seconds: int = 50
    
-    conflicts_best_solution: int = field(init=False)
-    conflicts_current_solution: int = field(init=False)
     objective_best_solution: float = field(init=False)
     objective_current_solution: float = field(init=False)
     score_function: Callable[[float, float, float, float, int], tuple[int, bool]] = _default_score_function
@@ -99,9 +97,6 @@ class MBandit:
 
     def __post_init__(self) -> None:
         """Validate configuration and initialize operators, weights, and LNS state."""
-        warmstart_conflicts = int(sum(self.schedule.count_total_violations().values()))
-        self.conflicts_best_solution = warmstart_conflicts
-        self.conflicts_current_solution = warmstart_conflicts
         # Warmstart objective is unknown until a repair solve returns a value.
         self.objective_best_solution = float("inf")
         self.objective_current_solution = float("inf")
@@ -141,7 +136,7 @@ class MBandit:
                 "destroy_day": (
                     lambda lns: lns.destroy_day(random.randrange(lns.instance.num_days))
                 ),
-                "destroy_worst_window_20pct": _make_destroy_worst_window(0.20),
+                "destroy_random_window_20pct": _make_destroy_random_window(0.20),
             }
 
         if not self.repair_operators:
@@ -156,7 +151,7 @@ class MBandit:
             }
         ### Here we set the standard destroy operator for explorations
 
-        self.destroy_exploration_operator = _make_destroy_worst_window(0.25)
+        self.destroy_exploration_operator = _make_destroy_random_window(0.25)
         self.repair_exploration_operator = (
             lambda lns: lns.repair_exact(
                 model_path=self.model_path,
@@ -336,7 +331,6 @@ class MBandit:
         lns.incumbent = self.schedule
         lns.contender = None
 
-        incumbent_conflicts = int(sum(self.schedule.count_total_violations().values()))
         incumbent_objective = self.objective_current_solution
 
         use_exploration = self.stagnation_rounds >= self.exploration_after_stagnation
@@ -372,11 +366,11 @@ class MBandit:
                 "workers": destroyed_workers,
                 "days": destroyed_days,
             }
-            destroyed_display = f"destoyed window: {destroyed_workers} x {destroyed_days}"
+            destroyed_display = f"destroyed window: {destroyed_workers} x {destroyed_days}"
         elif "random" in destroy_name:
             destroyed_target_type = "random_pairs"
             destroyed_target_ids = destroyed_pairs_count
-            destroyed_display = f"destroyed random: {destroyed_pairs_count} randum pairs"
+            destroyed_display = f"destroyed random: {destroyed_pairs_count} random pairs"
         elif "worker" in destroy_name:
             destroyed_target_type = "workers"
             destroyed_target_ids = destroyed_workers
@@ -397,12 +391,10 @@ class MBandit:
             repair_failed = True
             repair_error = f"{type(exc).__name__}: {exc}"
 
-        contender_conflicts = incumbent_conflicts
         contender_objective = incumbent_objective
         contender_score = 0
         contender_accepted = False
         if not repair_failed and lns.contender is not None:
-            contender_conflicts = int(sum(lns.contender.count_total_violations().values()))
             contender_objective_raw = getattr(lns, "contender_objective", None)
             if contender_objective_raw is None:
                 repair_failed = True
@@ -438,9 +430,6 @@ class MBandit:
         accepted = (not repair_failed) and bool(contender_accepted)
         if accepted:
             self.schedule = lns.contender
-            self.conflicts_current_solution = contender_conflicts
-            if contender_conflicts < self.conflicts_best_solution:
-                self.conflicts_best_solution = contender_conflicts
             self.objective_current_solution = contender_objective
             if contender_objective < self.objective_best_solution:
                 self.objective_best_solution = contender_objective
@@ -472,8 +461,6 @@ class MBandit:
             }
         return {
             "iteration": self.lns_loop_counter,
-            "incumbent_conflicts": incumbent_conflicts,
-            "contender_conflicts": contender_conflicts,
             "incumbent_objective": incumbent_objective,
             "contender_objective": contender_objective,
             "contender_score": contender_score,
@@ -491,15 +478,6 @@ class MBandit:
             "destroyed_target_ids": destroyed_target_ids,
             "destroyed_display": destroyed_display,
         }
-
-    def final_push(self, k: int) -> None:
-        """TODO: Intensify repair when remaining conflicts drop below `k`."""
-        # TODO:
-        # - Trigger only if self.conflicts_current_solution < k.
-        # - Temporarily switch to stronger/slower repair operators (e.g. long timeout).
-        # - Restrict destroy neighborhoods to small focused moves around worst violations.
-        # - Accept only improving moves (or stricter SA) and stop on stagnation.
-        raise NotImplementedError("TODO: implement final_push")
 
     def _destroy_signature(
         self,
@@ -546,23 +524,11 @@ def _make_repair_operator(
     return _op
 
 
-def _current_schedule(lns: rws_lns) -> RWS.Schedule:
-    """Return contender when available, otherwise incumbent."""
-    return lns.contender if lns.contender is not None else lns.incumbent
-
-
 def _ceil_fraction_count(total: int, fraction: float) -> int:
     """Convert a fraction to a bounded ceiling count."""
     if fraction <= 0:
         return 0
     return min(total, math.ceil(total * fraction))
-
-
-def _take_ranked_ids(ranked: Dict[int, int], k: int) -> list[int]:
-    """Take the first k IDs from a ranked ID->score mapping."""
-    if k <= 0:
-        return []
-    return list(ranked.keys())[:k]
 
 
 def _smallest_cover_interval(ids: list[int], size: int, cyclic: bool) -> list[int]:
@@ -606,39 +572,54 @@ def _smallest_cover_interval(ids: list[int], size: int, cyclic: bool) -> list[in
 ####### Library of different destroy-operators
 
 def _make_destroy_worst_workers(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
-    """Build a destroy op that frees the worst workers by violation ranking."""
+    """Build a destroy op that frees workers with earliest first violation day."""
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
-        """Destroy assignments for the current worst-ranked workers."""
-        schedule = _current_schedule(lns)
+        """Destroy assignments for worst-ranked workers by first-violation distance."""
+        schedule = lns.contender if lns.contender is not None else lns.incumbent
         k = _ceil_fraction_count(lns.instance.num_workers, fraction)
-        worker_ids = _take_ranked_ids(schedule.worker_ranked_by_violations, k)
+        if k <= 0:
+            return []
+        scores = schedule.worker_days_until_first_violation()
+        ranked = sorted(scores.keys(), key=lambda worker: (scores[worker], worker))
+        worker_ids = [worker for worker in ranked if scores[worker] <= lns.instance.num_days][:k]
+        if len(worker_ids) < k:
+            remaining = [worker for worker in range(lns.instance.num_workers) if worker not in worker_ids]
+            worker_ids.extend(random.sample(remaining, k - len(worker_ids)))
         return lns.destroy_worker(worker_ids)
     return _op
 
 def _make_destroy_worst_days(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
-    """Build a destroy op that frees the worst days by violation ranking."""
+    """Build a destroy op that frees days with largest requirement mismatch counts."""
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
-        """Destroy assignments for the current worst-ranked days."""
-        schedule = _current_schedule(lns)
+        """Destroy assignments for worst-ranked days by staffing-requirement mismatch."""
+        schedule = lns.contender if lns.contender is not None else lns.incumbent
         k = _ceil_fraction_count(lns.instance.num_days, fraction)
-        day_ids = _take_ranked_ids(schedule.days_ranked_by_violations, k)
+        if k <= 0:
+            return []
+        scores = schedule.day_shift_requirement_violation_counts()
+        ranked = sorted(scores.keys(), key=lambda day: (-scores[day], day))
+        day_ids = [day for day in ranked if scores[day] > 0][:k]
+        if len(day_ids) < k:
+            remaining = [day for day in range(lns.instance.num_days) if day not in day_ids]
+            day_ids.extend(random.sample(remaining, k - len(day_ids)))
         return lns.destroy_day(day_ids)
     return _op
 
 
-def _make_destroy_worst_window(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
-    """Build a destroy op that frees a worst-ranked workers x days index window."""
+def _make_destroy_random_window(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    """Build a destroy op that frees a random workers x days index window."""
     if not (0.0 <= fraction <= 1.0):
         raise ValueError("fraction must be in [0, 1]")
 
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
-        """Destroy entries in the smallest interval window covering top-p worst IDs."""
-        schedule = _current_schedule(lns)
+        """Destroy entries in the smallest interval window covering sampled IDs."""
 
         worker_k = _ceil_fraction_count(lns.instance.num_workers, fraction)
         day_k = _ceil_fraction_count(lns.instance.num_days, fraction)
-        worker_ids = _take_ranked_ids(schedule.worker_ranked_by_violations, worker_k)
-        day_ids = _take_ranked_ids(schedule.days_ranked_by_violations, day_k)
+        worker_ids = (
+            random.sample(range(lns.instance.num_workers), worker_k) if worker_k > 0 else []
+        )
+        day_ids = random.sample(range(lns.instance.num_days), day_k) if day_k > 0 else []
 
         worker_window = _smallest_cover_interval(
             ids=worker_ids,
@@ -659,7 +640,6 @@ def _make_destroy_worst_window(fraction: float) -> Callable[[rws_lns], list[tupl
         return lns.destroy_window(workers=worker_window, days=day_window)
 
     return _op
-
 
 def _make_destroy_random_workers(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
     """Build a destroy op that frees a random subset of workers."""
@@ -683,30 +663,6 @@ def _make_destroy_random_days(fraction: float) -> Callable[[rws_lns], list[tuple
         return lns.destroy_day(day_ids)
     return _op
 
-def _make_destroy_random_workers_and_days(
-    workers_fraction: float,
-    days_fraction: float,
-) -> Callable[[rws_lns], list[tuple[int, int]]]:
-    """Build a destroy op that frees random workers and random days in one move."""
-    def _op(lns: rws_lns) -> list[tuple[int, int]]:
-        """Destroy assignments from both random worker and random day selections."""
-        destroyed: list[tuple[int, int]] = []
-        selected_workers: list[int] = []
-        selected_days: list[int] = []
-        workers_k = _ceil_fraction_count(lns.instance.num_workers, workers_fraction)
-        if workers_k > 0:
-            selected_workers = random.sample(range(lns.instance.num_workers), workers_k)
-            destroyed.extend(lns.destroy_worker(selected_workers))
-        days_k = _ceil_fraction_count(lns.instance.num_days, days_fraction)
-        if days_k > 0:
-            selected_days = random.sample(range(lns.instance.num_days), days_k)
-            destroyed.extend(lns.destroy_day(selected_days))
-        lns._last_destroy_selected_workers = selected_workers
-        lns._last_destroy_selected_days = selected_days
-        return destroyed
-
-    return _op
-
 ###################################################################
 
 if __name__ == "__main__":
@@ -722,14 +678,14 @@ if __name__ == "__main__":
     if not instance_path.exists():
         raise FileNotFoundError(f"instance file not found: {instance_path}")
 
-    instance, schedule = load_instance_and_schedule(file_path=instance_path, cyclicity=True)
+    instance, schedule = load_instance_and_schedule(file_path=instance_path, cyclicity=True, initial_schedule='round_robin')
 
     model_path = base / "rws_instance.mzn"
     repair_ops: Dict[str, Callable[[rws_lns], None]] = {
-        "repair_chuffed_fast": _make_repair_operator(model_path, "chuffed", 3),
-        "repair_gecode_fast": _make_repair_operator(model_path, "gecode", 3),
-        "repair_chuffed_long": _make_repair_operator(model_path, "chuffed", 15),
-        "repair_gecode_long": _make_repair_operator(model_path, "gecode", 15),
+        "repair_chuffed_fast": _make_repair_operator(model_path, "chuffed", 8),
+        "repair_gecode_fast": _make_repair_operator(model_path, "gecode", 8),
+        "repair_chuffed_long": _make_repair_operator(model_path, "chuffed", 24),
+        "repair_gecode_long": _make_repair_operator(model_path, "gecode", 24),
     }
 
 
@@ -737,9 +693,7 @@ if __name__ == "__main__":
         "destroy_worst_workers_10pct": _make_destroy_worst_workers(0.10),
         "destroy_worst_workers_20pct": _make_destroy_worst_workers(0.20),
         "destroy_random_workers_20pct": _make_destroy_random_workers(0.20),
-        "destroy_worst_window_05pct": _make_destroy_worst_window(0.05),
-        "destroy_worst_window_10pct": _make_destroy_worst_window(0.10),
-        "destroy_worst_window_20pct": _make_destroy_worst_window(0.20),
+        "destroy_random_window_20pct": _make_destroy_random_window(0.20),
         "destroy_worst_days_10pct": _make_destroy_worst_days(0.10),
         "destroy_worst_days_20pct": _make_destroy_worst_days(0.20),
         "destroy_random_days_20pct": _make_destroy_random_days(0.20),
@@ -808,9 +762,6 @@ if __name__ == "__main__":
                 f"step_runtime={step_runtime:.3f}s "
                 f"destroy={step['selected_destroy_operator']} "
                 f"repair={step['selected_repair_operator']} "
-                f"violation_metric=count_total_violations "
-                f"incumbent_violations={step['incumbent_conflicts']} "
-                f"contender_violations={step['contender_conflicts']} "
                 f"objective_metric=minizinc_objective "
                 f"incumbent_objective={step['incumbent_objective']} "
                 f"contender_objective={step['contender_objective']} "
@@ -868,14 +819,14 @@ if __name__ == "__main__":
         )
         print("Final schedule:")
         mab.schedule.display_schedule()
-        mab.schedule.display_violations()
+        mab.schedule.display_validity()
     elif timed_out:
         print(
             f"Timed out after {total_runtime:.3f}s at iteration {last_iteration}. "
-            f"Current conflicts: {mab.conflicts_current_solution}"
+            f"Schedule valid: {mab.schedule.is_valid()}"
         )
         print("Last schedule:")
         mab.schedule.display_schedule()
-        mab.schedule.display_violations()
+        mab.schedule.display_validity()
 
     print(f"Wrote run log: {log_path}")

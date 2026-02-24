@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-import math
 import os
 from pathlib import Path
 import re
@@ -28,8 +27,6 @@ class IterationRecord:
     iteration: int
     elapsed: float
     step_runtime: float
-    incumbent_violations: int
-    contender_violations: int
     incumbent_objective: Optional[float]
     contender_objective: Optional[float]
     accepted: bool
@@ -77,8 +74,6 @@ def parse_log(
                 "iter",
                 "elapsed",
                 "step_runtime",
-                "incumbent_violations",
-                "contender_violations",
                 "accepted",
             }
             missing = required - set(fields)
@@ -89,8 +84,6 @@ def parse_log(
                 iteration=int(fields["iter"]),
                 elapsed=float(fields["elapsed"].rstrip("s")),
                 step_runtime=float(fields["step_runtime"].rstrip("s")),
-                incumbent_violations=int(fields["incumbent_violations"]),
-                contender_violations=int(fields["contender_violations"]),
                 incumbent_objective=_parse_optional_float(fields.get("incumbent_objective")),
                 contender_objective=_parse_optional_float(fields.get("contender_objective")),
                 accepted=_parse_bool(fields["accepted"]),
@@ -218,15 +211,7 @@ def plot_analytics(
 ) -> None:
     iterations = [record.iteration for record in records]
     runtimes = [record.step_runtime for record in records]
-    contender_violations = [record.contender_violations for record in records]
     contender_objectives = [record.contender_objective for record in records]
-
-    accepted_trajectory: List[int] = []
-    current = records[0].incumbent_violations
-    for record in records:
-        if record.accepted:
-            current = record.contender_violations
-        accepted_trajectory.append(current)
 
     accepted_objective_trajectory: List[Optional[float]] = []
     current_obj = records[0].incumbent_objective
@@ -266,22 +251,6 @@ def plot_analytics(
     )
 
     ax_v = axes[0]
-    ax_v.plot(
-        iterations,
-        accepted_trajectory,
-        color="tab:blue",
-        linewidth=2.0,
-        label="Accepted violations",
-    )
-    ax_v.plot(
-        iterations,
-        contender_violations,
-        color="tab:blue",
-        alpha=0.35,
-        linewidth=1.2,
-        linestyle="--",
-        label="Contender violations",
-    )
     if has_objective:
         ax_v.plot(
             iterations,
@@ -309,7 +278,7 @@ def plot_analytics(
             va="top",
             fontsize=9,
         )
-    ax_v.set_ylabel("Counts")
+    ax_v.set_ylabel("Objective")
     ax_v.grid(alpha=0.25)
 
     ax_rt = ax_v.twinx()
@@ -365,7 +334,7 @@ def plot_analytics(
         labels.extend(l)
     ax_v.legend(handles, labels, loc="upper right")
     ax_v.set_title(
-        f"Violations and Objective with Runtime and Temperature Overlay | {instance_label}"
+        f"Objective with Runtime and Temperature Overlay | {instance_label}"
     )
 
     ax_dw = axes[1]
@@ -469,7 +438,7 @@ def plot_analytics(
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Parse multiarm_bandit.log and plot violations/objective/runtime, "
+            "Parse multiarm_bandit.log and plot objective/runtime, "
             "weights trajectory, and temperature."
         )
     )

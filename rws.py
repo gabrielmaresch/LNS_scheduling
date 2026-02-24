@@ -129,18 +129,10 @@ class RWS:
     class Schedule:
         instance: "RWS.Instance"
         assignment: List[List[int]]
-        run_compatibility_check: bool = False
-        compatibility_issues: List[str] = field(init=False, default_factory=list)
-        worker_ranked_by_violations: Dict[int, int] = field(init=False, default_factory=dict)
-        days_ranked_by_violations: Dict[int, int] = field(init=False, default_factory=dict)
 
         def __post_init__(self) -> None:
-            """Validate assignment and precompute compatibility and violation rankings."""
+            """Validate assignment matrix shape and value domain."""
             self._check_admissibility()
-            summary = self.detect_all_violations()
-            self._refresh_ranked_violations(summary)
-            if self.run_compatibility_check:
-                self.compatibility_issues = self.check_compatibility(summary=summary)
 
         def _check_admissibility(self) -> None:
             """Assert assignment matrix shape and shift values fit the instance."""
@@ -159,212 +151,157 @@ class RWS:
                         )
 
 
-        def check_compatibility(
-            self,
-            summary: Optional[Dict[str, Dict[str, Dict[int, int]]]] = None,
-        ) -> List[str]:
-            """Return empty list if schedule is feasible, otherwise summarize violations."""
-            totals = self.count_total_violations(summary)
-            total_violations = sum(totals.values())
-            if total_violations == 0:
-                return []
-
-            issues = [f"total violations: {total_violations}"]
-            for key in ("sequence", "min", "max", "required"):
-                count = totals[key]
-                if count > 0:
-                    issues.append(f"{key} violations: {count}")
-            return issues
-
-        @staticmethod
-        def _rank_counts_desc(counts: Dict[int, int]) -> Dict[int, int]:
-            """Return insertion-ordered dict ranked by descending count then ascending id."""
-            return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
-
-        def _refresh_ranked_violations(
-            self, summary: Optional[Dict[str, Dict[str, Dict[int, int]]]] = None
-        ) -> None:
-            """Compute ranked violation dictionaries for workers and days."""
-            s = summary or self.detect_all_violations()
-            by_worker: Dict[int, int] = {w: 0 for w in range(self.instance.num_workers)}
-            by_day: Dict[int, int] = {d: 0 for d in range(self.instance.num_days)}
-            for key in ("sequence", "min", "max", "required"):
-                for worker, count in s[key]["by_worker"].items():
-                    by_worker[worker] += count
-                for day, count in s[key]["by_day"].items():
-                    by_day[day] += count
-            self.worker_ranked_by_violations = self._rank_counts_desc(by_worker)
-            self.days_ranked_by_violations = self._rank_counts_desc(by_day)
-
-        def refresh_ranked_violations(self) -> None:
-            """Public helper to recompute ranked violations after external assignment edits."""
-            self._refresh_ranked_violations()
-
-        # Detect all kindas of violations and return by worker and day involved
-
-        def _detect_forbidden_sequences(self) -> Tuple[Dict[int, int], Dict[int, int]]:
-            """Detect forbidden sequence violations by worker and by day."""
+        def is_valid(self) -> bool:
+            """Single schedule validity check across all modeled constraints."""
             inst = self.instance
+            worker_first = self.worker_days_until_first_violation()
+            if any(day <= inst.num_days for day in worker_first.values()):
+                return False
+            return not any(
+                count > 0 for count in self.day_shift_requirement_violation_counts().values()
+            )
+
+        def worker_days_until_first_violation(self) -> Dict[int, int]:
+            """Return per-worker days until first worker-level violation (1..d, d+1 if none)."""
+            inst = self.instance
+            first_day: Dict[int, int] = {worker: inst.num_days + 1 for worker in range(inst.num_workers)}
+
+            def _mark(worker: int, day: int) -> None:
+                first_day[worker] = min(first_day[worker], day + 1)
+
+            # Sequence violations can involve rotated boundary slots, so mark all involved workers.
             forbidden = set(inst.forbidden_sequences)
-            by_worker: Dict[int, int] = {worker: 0 for worker in range(inst.num_workers)}
-            by_day: Dict[int, int] = {day: 0 for day in range(inst.num_days)}
+            if forbidden:
+                for worker in range(inst.num_workers):
+                    for day in range(inst.num_days):
+                        cur_shift = self.assignment[day][worker]
 
-            for worker in range(inst.num_workers):
-                day_range = range(inst.num_days) if inst.cyclicity else range(1, inst.num_days)
-                for day in day_range:
-                    prev_day = (day - 1) % inst.num_days
-                    prev_shift = self.assignment[prev_day][worker]
-                    cur_shift = self.assignment[day][worker]
-                    
-                    # Check 2-tuples
-                    if (prev_shift, cur_shift) in forbidden:
-                        by_worker[worker] += 1
-                        by_day[prev_day] += 1
-                        by_day[day] += 1
-                    
-                    # Check 3-shift patterns
-                    if day >= 2 or (inst.cyclicity and day >= 1):
-                        prev_prev_day = (day - 2) % inst.num_days
-                        prev_prev_shift = self.assignment[prev_prev_day][worker]
-                        if (prev_prev_shift, prev_shift, cur_shift) in forbidden:
-                            by_worker[worker] += 1
-                            by_day[prev_prev_day] += 1
-                            by_day[prev_day] += 1
-                            by_day[day] += 1
+                        if inst.cyclicity or day < inst.num_days - 1:
+                            next_worker, next_day = self._next_slot(worker, day)
+                            next_shift = self.assignment[next_day][next_worker]
+                            if (cur_shift, next_shift) in forbidden:
+                                _mark(worker, day)
+                                _mark(next_worker, next_day)
 
-            return by_worker, by_day
-
-        def _detect_min_violations(self) -> Tuple[Dict[int, int], Dict[int, int]]:
-            """Detect minimum consecutive violations by worker and by day.
-               Violations are not discriminated per workday, off-day and shift"""
-            inst = self.instance
-            by_worker: Dict[int, int] = {worker: 0 for worker in range(inst.num_workers)}
-            by_day: Dict[int, int] = {day: 0 for day in range(inst.num_days)}
+                        if inst.cyclicity or day < inst.num_days - 2:
+                            next_worker, next_day = self._next_slot(worker, day)
+                            next2_worker, next2_day = self._next_slot(next_worker, next_day)
+                            next_shift = self.assignment[next_day][next_worker]
+                            next2_shift = self.assignment[next2_day][next2_worker]
+                            if (cur_shift, next_shift, next2_shift) in forbidden:
+                                _mark(worker, day)
+                                _mark(next_worker, next_day)
+                                _mark(next2_worker, next2_day)
 
             for worker in range(inst.num_workers):
                 work_runs = self._runs_for_worker_days(worker, lambda s: s != 0)
                 off_runs = self._runs_for_worker_days(worker, lambda s: s == 0)
 
                 for run_days in work_runs:
-                    if len(run_days) < inst.min_consecutive_work:
-                        by_worker[worker] += 1
-                        for day in run_days:
-                            by_day[day] += 1
+                    if not run_days:
+                        continue
+                    run_len = len(run_days)
+                    if run_days[0] == 0 and inst.cyclicity:
+                        prev_worker = self._prev_worker(worker)
+                        carry_len = self._tail_run_length(prev_worker, lambda s: s != 0)
+                        run_len = min(inst.num_days, run_len + carry_len)
+                    continues = self._run_continues_in_next_worker(worker, run_days, lambda s: s != 0)
+                    if (not continues and run_len < inst.min_consecutive_work) or run_len > inst.max_consecutive_work:
+                        _mark(worker, run_days[0])
+
                 for run_days in off_runs:
-                    if len(run_days) < inst.min_consecutive_off:
-                        by_worker[worker] += 1
-                        for day in run_days:
-                            by_day[day] += 1
+                    if not run_days:
+                        continue
+                    continues = self._run_continues_in_next_worker(worker, run_days, lambda s: s == 0)
+                    run_len = len(run_days)
+                    if (not continues and run_len < inst.min_consecutive_off) or run_len > inst.max_consecutive_off:
+                        _mark(worker, run_days[0])
 
                 for shift_id in range(len(inst.shift_names)):
                     shift_runs = self._runs_for_worker_days(worker, lambda s, sid=shift_id: s == sid)
                     min_shift = inst.min_consecutive_shift.get(shift_id, 0)
-                    for run_days in shift_runs:
-                        if len(run_days) < min_shift:
-                            by_worker[worker] += 1
-                            for day in run_days:
-                                by_day[day] += 1
-
-            return by_worker, by_day
-
-        def _detect_max_violations(self) -> Tuple[Dict[int, int], Dict[int, int]]:
-            """Detect maximum consecutive violations by worker and by day.
-               Violations are not discriminated per workday, off-day and shift"""
-            inst = self.instance
-            by_worker: Dict[int, int] = {worker: 0 for worker in range(inst.num_workers)}
-            by_day: Dict[int, int] = {day: 0 for day in range(inst.num_days)}
-
-            for worker in range(inst.num_workers):
-                work_runs = self._runs_for_worker_days(worker, lambda s: s != 0)
-                off_runs = self._runs_for_worker_days(worker, lambda s: s == 0)
-
-                for run_days in work_runs:
-                    if len(run_days) > inst.max_consecutive_work:
-                        by_worker[worker] += 1
-                        for day in run_days:
-                            by_day[day] += 1
-                for run_days in off_runs:
-                    if len(run_days) > inst.max_consecutive_off:
-                        by_worker[worker] += 1
-                        for day in run_days:
-                            by_day[day] += 1
-
-                for shift_id in range(len(inst.shift_names)):
-                    shift_runs = self._runs_for_worker_days(worker, lambda s, sid=shift_id: s == sid)
                     max_shift = inst.max_consecutive_shift.get(shift_id, 10**9)
                     for run_days in shift_runs:
-                        if len(run_days) > max_shift:
-                            by_worker[worker] += 1
-                            for day in run_days:
-                                by_day[day] += 1
+                        if not run_days:
+                            continue
+                        continues = self._run_continues_in_next_worker(
+                            worker,
+                            run_days,
+                            lambda s, sid=shift_id: s == sid,
+                        )
+                        run_len = len(run_days)
+                        if (not continues and run_len < min_shift) or run_len > max_shift:
+                            _mark(worker, run_days[0])
 
-            return by_worker, by_day
+            return first_day
 
-        def _detect_required_shifts_violations(self) -> Tuple[Dict[int, int], Dict[int, int]]:
-            """Detect required-shift violations by day; worker aggregation is kept at 0."""
+        def day_shift_requirement_violation_counts(self) -> Dict[int, int]:
+            """Return per-day shift-requirement mismatch counts (sum of absolute deltas)."""
             inst = self.instance
-            by_worker: Dict[int, int] = {worker: 0 for worker in range(inst.num_workers)}
             by_day: Dict[int, int] = {day: 0 for day in range(inst.num_days)}
-
             for shift_id, req_count in inst.required_number_of_shifts.items():
-                # Normalize to per-day requirements
                 if isinstance(req_count, int):
                     required_per_day = [req_count] * inst.num_days
                 else:
                     required_per_day = list(req_count)
-                
-                # Check per-day requirements
                 for day, required in enumerate(required_per_day):
                     actual = sum(
                         1 for worker in range(inst.num_workers)
                         if self.assignment[day][worker] == shift_id
                     )
-                    if actual != required:
-                        by_day[day] += 1
+                    # Ranking signal: total staffing mismatch magnitude for this day.
+                    by_day[day] += abs(actual - required)
+            return by_day
 
-            return by_worker, by_day
-
-        
-        # Aggregation of different types of constraint violations
-        
-        def detect_all_violations(self) -> Dict[str, Dict[str, Dict[int, int]]]:
-            """Return per-type violation detection with by_worker and by_day counts."""
-            sequence_by_worker, sequence_by_day = self._detect_forbidden_sequences()
-            min_by_worker, min_by_day = self._detect_min_violations()
-            max_by_worker, max_by_day = self._detect_max_violations()
-            required_by_worker, required_by_day = self._detect_required_shifts_violations()
-            return {
-                "sequence": {"by_worker": sequence_by_worker, "by_day": sequence_by_day},
-                "min": {"by_worker": min_by_worker, "by_day": min_by_day},
-                "max": {"by_worker": max_by_worker, "by_day": max_by_day},
-                "required": {"by_worker": required_by_worker, "by_day": required_by_day},
-            }
-
-        def count_total_violations(
-            self,
-            summary: Optional[Dict[str, Dict[str, Dict[int, int]]]] = None,
-        ) -> Dict[str, int]:
-            """Return per-type totals derived from detection output."""
-            s = summary or self.detect_all_violations()
-            return {
-                "sequence": sum(s["sequence"]["by_worker"].values()),
-                "min": sum(s["min"]["by_worker"].values()),
-                "max": sum(s["max"]["by_worker"].values()),
-                "required": sum(s["required"]["by_day"].values()),
-            }
-
-
-        # Helper methods for calculation of constraint-violations
+        # Helper methods for validity checks
 
         def _runs_for_worker_days(self, worker: int, day_condition) -> List[List[int]]:
             """Return day-index runs for one worker under the given condition."""
             inst = self.instance
             values = [day_condition(self.assignment[day][worker]) for day in range(inst.num_days)]
-            return self._extract_runs_with_days(values, inst.cyclicity)
+            return self._extract_runs_with_days(values)
+
+        def _next_worker(self, worker: int) -> int:
+            inst = self.instance
+            return (worker + 1) % inst.num_workers
+
+        def _prev_worker(self, worker: int) -> int:
+            inst = self.instance
+            return (worker - 1) % inst.num_workers
+
+        def _next_slot(self, worker: int, day: int) -> tuple[int, int]:
+            inst = self.instance
+            if day < inst.num_days - 1:
+                return worker, day + 1
+            return self._next_worker(worker), 0
+
+        def _tail_run_length(self, worker: int, day_condition) -> int:
+            inst = self.instance
+            length = 0
+            for day in range(inst.num_days - 1, -1, -1):
+                if day_condition(self.assignment[day][worker]):
+                    length += 1
+                else:
+                    break
+            return length
+
+        def _run_continues_in_next_worker(
+            self,
+            worker: int,
+            run_days: Sequence[int],
+            day_condition,
+        ) -> bool:
+            inst = self.instance
+            if not inst.cyclicity or not run_days:
+                return False
+            if run_days[-1] != inst.num_days - 1:
+                return False
+            next_worker = self._next_worker(worker)
+            return day_condition(self.assignment[0][next_worker])
         
         @staticmethod
-        def _extract_runs_with_days(flags: Sequence[bool], cyclic: bool) -> List[List[int]]:
-            """Return runs as lists of day indices, merging cyclic boundary runs."""
+        def _extract_runs_with_days(flags: Sequence[bool]) -> List[List[int]]:
+            """Return runs as lists of day indices."""
             n = len(flags)
             if n == 0:
                 return []
@@ -380,16 +317,9 @@ class RWS:
                 else:
                     i += 1
 
-            if cyclic and runs and flags[0] and flags[-1]:
-                if len(runs) == 1 and len(runs[0]) == n:
-                    return [list(range(n))]
-                merged = runs[-1] + runs[0]
-                middle = runs[1:-1] if len(runs) > 2 else []
-                runs = [merged] + middle
-
             return runs
 
-        # Display the parameters, the schedule and the violations nicely
+        # Display the parameters and schedule nicely
         
         def display_schedule(self) -> None:
             """Display the schedule in a readable format."""
@@ -444,69 +374,9 @@ class RWS:
             
             print("="*80 + "\n")
 
-        def display_violations(self, totals_only: bool = False) -> None:
-            """Print compact violation summaries (per-worker, per-day and totals)."""
-            summary = self.detect_all_violations()
-            totals = self.count_total_violations(summary)
-            inst = self.instance
-            total_violations = sum(totals.values())
-
-            if totals_only:
-                if total_violations == 0:
-                    print("No violations.")
-                    print("=" * 80 + "\n")
-                    return
-                print(f"{'Total violations':.<40} {total_violations:>3}")
-                print("=" * 80 + "\n")
-            else:
-                if total_violations == 0:
-                    print("No violations.")
-                    print("=" * 80 + "\n")
-                    return
-
-                worker_lines: list[str] = []
-                for worker in range(inst.num_workers):
-                    seq = summary["sequence"]["by_worker"][worker]
-                    mn = summary["min"]["by_worker"][worker]
-                    mx = summary["max"]["by_worker"][worker]
-                    if seq + mn + mx > 0:
-                        worker_lines.append(
-                            f"  Worker {worker}: sequence={seq:>2}  min={mn:>2}  max={mx:>2}"
-                        )
-
-                if worker_lines:
-                    print("Violation counts per worker:")
-                    print("=" * 80)
-                    for line in worker_lines:
-                        print(line)
-                    print("=" * 80 + "\n")
-
-                day_lines: list[str] = []
-                for day in range(inst.num_days):
-                    seq = summary["sequence"]["by_day"][day]
-                    mn = summary["min"]["by_day"][day]
-                    mx = summary["max"]["by_day"][day]
-                    req = summary["required"]["by_day"][day]
-                    if seq + mn + mx + req > 0:
-                        day_lines.append(
-                            f"  Day {day}: sequence={seq:>2}  min={mn:>2}  max={mx:>2}  required shifts={req:>2}"
-                        )
-
-                if day_lines:
-                    print("Violation counts per day:")
-                    print("=" * 80)
-                    for line in day_lines:
-                        print(line)
-                    print("=" * 80 + "\n")
-
-                print("Total violated clauses:")
-                print("=" * 80)
-                for key, value in totals.items():
-                    if value > 0:
-                        print(f"  {key:.<40} {value:>3}")
-                print("=" * 80)
-                print(f"  {'Total violations':.<40} {total_violations:>3}")
-                print("=" * 80 + "\n")
+        def display_validity(self) -> None:
+            """Print whether the schedule is valid."""
+            print("Schedule valid." if self.is_valid() else "Schedule invalid.")
 
 
 @dataclass
@@ -690,14 +560,13 @@ if __name__ == "__main__":
 
     while True:
         current_schedule = lns.contender if lns.contender is not None else lns.incumbent
-        before_totals = current_schedule.count_total_violations()
-        before_total = sum(before_totals.values())
+        before_valid = current_schedule.is_valid()
 
         print(f"\n=== LNS run {run_idx} ===")
         print("Current schedule before destroy/repair:")
         current_schedule.display_schedule()
-        current_schedule.display_violations()
-        print(f"Total violations before repair: {before_total} ({before_totals})")
+        current_schedule.display_validity()
+        print(f"Valid before repair: {before_valid}")
         print("Available destroy operators: worker, day")
 
         selected_raw = input("Which destroy operators to apply? (comma-separated): ").strip().lower()
@@ -728,15 +597,12 @@ if __name__ == "__main__":
         )
         runtime = perf_counter() - repair_start
 
-        after_totals = lns.contender.count_total_violations()
-        after_total = sum(after_totals.values())
-        delta = after_total - before_total
+        after_valid = lns.contender.is_valid()
 
         print("Schedule after repair:")
         lns.contender.display_schedule()
-        lns.contender.display_violations()
-        print(f"Total violations after repair:  {after_total} ({after_totals})")
-        print(f"Total violation delta (after - before): {delta}")
+        lns.contender.display_validity()
+        print(f"Valid after repair: {after_valid}")
         print(f"Repair runtime: {runtime:.3f}s")
 
         abort_raw = input("Abort further runs? [y/N]: ").strip().lower()

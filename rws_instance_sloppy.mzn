@@ -30,6 +30,20 @@ array[1..num_forbidden_sequences, 1..3] of int: forbidden_sequences = array2d(1.
 
 function int: next_day(int: day) = if day = d then 1 else day + 1 endif;
 function int: prev_day(int: day) = if day = 1 then d else day - 1 endif;
+function int: next_worker(int: worker) = if worker = n then 1 else worker + 1 endif;
+function int: prev_worker(int: worker) = if worker = 1 then n else worker - 1 endif;
+
+% Helpers for formulating schedule rotation:
+% (worker, d) is followed by (next_worker(worker), 1).
+function var int: next_slot_shift(int: worker, int: day) =
+  if day < d then shift_of[worker, day + 1] else shift_of[next_worker(worker), 1] endif;
+function var int: next2_slot_shift(int: worker, int: day) =
+  if day <= d - 2 then shift_of[worker, day + 2]
+  elseif day = d - 1 then shift_of[next_worker(worker), 1]
+  else shift_of[next_worker(worker), 2]
+  endif;
+function var int: prev_slot_shift(int: worker, int: day) =
+  if day > 1 then shift_of[worker, day - 1] else shift_of[prev_worker(worker), d] endif;
 
 
 
@@ -104,8 +118,8 @@ array[1..n, 1..d] of var 0..d: work_length_cyclic;
 
 constraint forall(worker in workers)(
   work_length_cyclic[worker, 1] =
-    if (shift_of[worker, 1] > 0 /\ shift_of[worker, d] > 0) then
-      min(d, work_length_until[worker,d] + 1)
+    if (shift_of[worker, 1] > 0 /\ prev_slot_shift(worker, 1) > 0) then
+      min(d, work_length_until[prev_worker(worker), d] + 1)
     else
       0
     endif
@@ -167,7 +181,7 @@ constraint forall(worker in workers)(
   endif
 );
 constraint forall(worker in workers)(  %last day check
-  if shift_of[worker, d] > 0 then
+  if shift_of[worker, d] > 0 /\ (not cyclic \/ next_slot_shift(worker, d) = 0) then
     work_length_cyclic[worker, d] + slack_work_min[worker] >= min_work
   endif
 );
@@ -185,7 +199,7 @@ constraint forall(worker in workers)(
   endif
 );
 constraint forall(worker in workers)(  %last day check
-  if shift_of[worker, d] = 0 then
+  if shift_of[worker, d] = 0 /\ (not cyclic \/ next_slot_shift(worker, d) > 0) then
     rest_length_until[worker, d] + slack_rest_min[worker] >= min_rest
   endif
 );
@@ -207,7 +221,7 @@ constraint forall(worker in workers, shift in 0..s)(
 );
 
 constraint forall(worker in workers, shift in 0..s)(
-  if shift_of[worker, d] = shift then
+  if shift_of[worker, d] = shift /\ (not cyclic \/ next_slot_shift(worker, d) != shift) then
     shift_length_until[worker, d, shift] + slack_shifts_min[worker, shift] >= max_min_lengths[shift, 1]
   endif
 );
@@ -233,7 +247,7 @@ constraint slack_forbidden_total =
     sum(worker in workers, day in days where cyclic \/ day < d)(
       bool2int(
         shift_of[worker, day] = a /\
-        shift_of[worker, if cyclic then next_day(day) else day + 1 endif] = b
+        (if cyclic then next_slot_shift(worker, day) else shift_of[worker, day + 1] endif) = b
       )
     )
   )
@@ -247,8 +261,8 @@ constraint slack_forbidden_total =
     sum(worker in workers, day in days where cyclic \/ day < d - 1)(
       bool2int(
         shift_of[worker, day] = a /\
-        shift_of[worker, if cyclic then next_day(day) else day + 1 endif] = b /\
-        shift_of[worker, if cyclic then next_day(next_day(day)) else day + 2 endif] = c
+        (if cyclic then next_slot_shift(worker, day) else shift_of[worker, day + 1] endif) = b /\
+        (if cyclic then next2_slot_shift(worker, day) else shift_of[worker, day + 2] endif) = c
       )
     )
   );

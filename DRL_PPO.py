@@ -14,9 +14,9 @@ from rws import RWS, rws_lns
 from rws_instance_loader import load_instance_and_schedule
 from multiarm_bandit import (
     _make_destroy_random_days as _mab_make_destroy_random_days,
+    _make_destroy_random_window as _mab_make_destroy_random_window,
     _make_destroy_random_workers as _mab_make_destroy_random_workers,
     _make_destroy_worst_days as _mab_make_destroy_worst_days,
-    _make_destroy_worst_window as _mab_make_destroy_worst_window,
     _make_destroy_worst_workers as _mab_make_destroy_worst_workers,
     _make_repair_operator as _mab_make_repair_operator,
 )
@@ -236,9 +236,9 @@ class drl_alns:
 
     # ========== NEW: TABU & EXPLORATION METHODS ==========
     def _destroyed_signature(self, destroyed_pairs: list[tuple[int, int]]) -> tuple:
-        """Extract worker/day sets from destroyed pairs."""
-        workers = frozenset(w for w, _ in destroyed_pairs)
-        days = frozenset(d for _, d in destroyed_pairs)
+        """Extract day/worker sets from destroyed `(day, worker)` pairs."""
+        days = frozenset(day for day, _ in destroyed_pairs)
+        workers = frozenset(worker for _, worker in destroyed_pairs)
         return (workers, days)
     
     def _is_tabu(self, destroyed_pairs: list[tuple[int, int]]) -> bool:
@@ -811,9 +811,9 @@ def _wrap_fraction_destroy(
 # -------------------------
 _make_destroy_random_workers = _wrap_fraction_destroy(_mab_make_destroy_random_workers)
 _make_destroy_random_days = _wrap_fraction_destroy(_mab_make_destroy_random_days)
+_make_destroy_random_window = _wrap_fraction_destroy(_mab_make_destroy_random_window)
 _make_destroy_worst_workers = _wrap_fraction_destroy(_mab_make_destroy_worst_workers)
 _make_destroy_worst_days = _wrap_fraction_destroy(_mab_make_destroy_worst_days)
-_make_destroy_worst_window = _wrap_fraction_destroy(_mab_make_destroy_worst_window)
 
 def _smooth(x, k=30):
     if len(x) < k:
@@ -940,7 +940,7 @@ def plot_training(log, show: bool = False, output_path: Path | None = None):
 # ============================================================
 if __name__ == "__main__":
     base = Path(__file__).resolve().parent
-    instance_path = base / "Instances1-50" / "Example100.txt"
+    instance_path = base / "Instances1-50" / "Example1.txt"
     instance, schedule = load_instance_and_schedule(
         file_path=instance_path,
         cyclicity=True
@@ -958,7 +958,7 @@ if __name__ == "__main__":
         "destroy_random_workers": _make_destroy_random_workers(),
         "destroy_worst_days": _make_destroy_worst_days(),
         "destroy_random_days": _make_destroy_random_days(),
-        "destroy_worst_window": _make_destroy_worst_window(),
+        "destroy_random_window": _make_destroy_random_window(),
     }
     solver = drl_alns(
         instance=instance,
@@ -976,7 +976,7 @@ if __name__ == "__main__":
 
     print("\nFinal schedule:")
     final_schedule.display_schedule()
-    final_schedule.display_violations()
+    final_schedule.display_validity()
 
     if log:
         plot_training(log, show=False, output_path=base / "drl-training.png")
