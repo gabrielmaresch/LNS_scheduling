@@ -1,0 +1,11 @@
+# Solution for Example100.txt
+# 7 characters per row (days 1..7), symbols: D, A, N, O (off)
+
+0 ANAAODD
+1 DNNODDA
+2 DDDDAAO
+3 ODAADNO
+4 NANOANA
+5 AAANNON
+6 ADODADD
+7 DODDNAA

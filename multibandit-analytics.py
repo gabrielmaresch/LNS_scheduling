@@ -133,6 +133,24 @@ def parse_log(
     return records, destroy_updates, repair_updates
 
 
+def infer_instance_label(log_path: Path) -> str:
+    """Infer instance filename from log header, fallback to unknown."""
+    patterns = (
+        re.compile(r"Loaded instance:\s*(.+)$"),
+        re.compile(r"\binstance(?:_path)?=([^\s]+)"),
+    )
+    for raw_line in log_path.read_text(encoding="utf-8").splitlines()[:80]:
+        line = raw_line.strip()
+        for pattern in patterns:
+            match = pattern.search(line)
+            if not match:
+                continue
+            candidate = match.group(1).strip().strip("\"'")
+            if candidate:
+                return Path(candidate).name
+    return "unknown"
+
+
 def _build_weight_update_bars(
     updates: Dict[int, Dict[str, Tuple[float, float]]],
 ) -> Tuple[List[int], List[str], Dict[str, List[float]]]:
@@ -194,6 +212,7 @@ def plot_analytics(
     initial_temp: float,
     decay: float,
     min_temp: float,
+    instance_label: str,
     output_path: Path,
     show: bool,
 ) -> None:
@@ -314,6 +333,28 @@ def plot_analytics(
         linestyle="-.",
         label=temperature_label,
     )
+    sa_accept_iterations: List[int] = []
+    sa_accept_temperatures: List[float] = []
+    for record, temp in zip(records, temperatures):
+        if (
+            record.accepted
+            and record.incumbent_objective is not None
+            and record.contender_objective is not None
+            and record.contender_objective > record.incumbent_objective
+        ):
+            sa_accept_iterations.append(record.iteration)
+            sa_accept_temperatures.append(temp)
+    if sa_accept_iterations:
+        ax_temp.scatter(
+            sa_accept_iterations,
+            sa_accept_temperatures,
+            s=100,
+            marker="x",
+            color="orange",
+            linewidths=2.5,
+            zorder=5,
+            label="Accepted worse via SA",
+        )
     ax_temp.set_ylabel("Temperature")
 
     handles = []
@@ -323,7 +364,9 @@ def plot_analytics(
         handles.extend(h)
         labels.extend(l)
     ax_v.legend(handles, labels, loc="upper right")
-    ax_v.set_title("Violations and Objective with Runtime and Temperature Overlay")
+    ax_v.set_title(
+        f"Violations and Objective with Runtime and Temperature Overlay | {instance_label}"
+    )
 
     ax_dw = axes[1]
     if destroy_update_iters:
@@ -437,6 +480,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Path to multiarm bandit log file.",
     )
     parser.add_argument(
+        "--instance",
+        type=str,
+        default=None,
+        help="Instance filename/path label shown in the plot title.",
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=Path(__file__).resolve().parent / "multibandit-analytics.png",
@@ -482,6 +531,7 @@ def main() -> None:
         raise ValueError("--temp-decay must be in (0, 1]")
 
     records, destroy_updates, repair_updates = parse_log(args.log)
+    instance_label = Path(args.instance).name if args.instance else infer_instance_label(args.log)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     plot_analytics(
         records=records,
@@ -490,6 +540,7 @@ def main() -> None:
         initial_temp=args.initial_temp,
         decay=args.temp_decay,
         min_temp=args.min_temp,
+        instance_label=instance_label,
         output_path=args.out,
         show=args.show,
     )

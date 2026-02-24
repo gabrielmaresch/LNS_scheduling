@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
@@ -125,29 +126,34 @@ def parse_instance_file(file_path: str | Path, cyclicity: bool = True) -> RWS.In
 
 
 def initialize_schedule(instance: RWS.Instance) -> RWS.Schedule:
-    """Create a simple initial schedule by filling each day's required shifts in round-robin order."""
+    """Create a randomized initial schedule that satisfies daily shift requirements."""
     num_days = instance.num_days
     num_workers = instance.num_workers
     num_shifts = len(instance.shift_names) - 1
 
     assignment = [[0 for _ in range(num_workers)] for _ in range(num_days)]
-    base_workers = list(range(num_workers))
+    workers = list(range(num_workers))
+    required_by_shift = [instance.required_number_of_shifts.get(shift_id, 0) for shift_id in range(1, num_shifts + 1)]
 
     for day in range(num_days):
-        # Rotate start worker by day to spread assignments.
-        start = day % num_workers
-        worker_order = base_workers[start:] + base_workers[:start]
+        total_required = 0
+        for req in required_by_shift:
+            total_required += req[day] if not isinstance(req, int) else req
+        if total_required > num_workers:
+            raise ValueError(
+                f"Infeasible day {day}: requires {total_required} workers, only {num_workers} available"
+            )
+
+        random.shuffle(workers)
         cursor = 0
 
         for shift_id in range(1, num_shifts + 1):
-            required = instance.required_number_of_shifts.get(shift_id, 0)
+            required = required_by_shift[shift_id - 1]
             required_on_day = required[day] if not isinstance(required, int) else required
-            for _ in range(required_on_day):
-                if cursor >= num_workers:
-                    break
-                worker = worker_order[cursor]
+            end = cursor + required_on_day
+            for worker in workers[cursor:end]:
                 assignment[day][worker] = shift_id
-                cursor += 1
+            cursor = end
 
     return RWS.Schedule(instance=instance, assignment=assignment)
 

@@ -50,34 +50,44 @@ class MBandit:
     schedule: RWS.Schedule
     weights_destroy: Optional[Dict[str, float]] = None
     weights_repair: Optional[Dict[str, float]] = None
-    iterations_till_weight_update: int = 20
+    
+    ###### Parameters for weight updates
+    iterations_till_weight_update: int = 15
     reaction_factor: float = 0.1
     beta_softmax: float = 0.2
-    equal_move_allowed_freezeout: int = 10
+    equal_move_allowed_freezeout: int = 5
     
+    ##### Simulated annealing for accepting subpar solutions
     annealing_temperature: float = 5
     min_annealing_temperature: float = 0.7
     time_decay_annealing: float = 0.98
 
-    global_timeout_seconds: float = 600.0
+    global_timeout_seconds: float = 150.0
     model_path: str | Path | None = None
-    solver_name: str = "chuffed"
     minizinc_timeout_seconds: int = 50
-    exploratory_timeout_seconds: float = 100
-    exploration_after_stagnation: int = 10
+   
     conflicts_best_solution: int = field(init=False)
     conflicts_current_solution: int = field(init=False)
     objective_best_solution: float = field(init=False)
     objective_current_solution: float = field(init=False)
     score_function: Callable[[float, float, float, float, int], tuple[int, bool]] = _default_score_function
+    
     destroy_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
     repair_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
+    
+    ######## Exploration
+    exploration_after_stagnation: int = 5
     destroy_exploration_operator: Callable[[rws_lns], list[tuple[int, int]]] = field(init=False, repr=False)
+    solver_name: str = "chuffed"
+    exploratory_timeout_seconds: float = 100
     repair_exploration_operator: Callable[[rws_lns], None] = field(init=False, repr=False)
+    
     lns: rws_lns = field(init=False)
     lns_loop_counter: int = 0
     operator_score_sums: Dict[str, float] = field(init=False)
     operator_usage_counts: Dict[str, int] = field(init=False)
+    
+    ######## Tabu parameters
     destroy_tabu_length: int = 8
     destroy_tabu_history: deque[tuple[frozenset[int], frozenset[int]]] = field(
         init=False, repr=False
@@ -123,7 +133,6 @@ class MBandit:
             raise ValueError("equal_move_allowed_freezeout must be >= 0")
 
             
-
         if not self.destroy_operators:
             self.destroy_operators = {
                 "destroy_worker": (
@@ -145,11 +154,9 @@ class MBandit:
                     )
                 )
             }
+        ### Here we set the standard destroy operator for explorations
 
-        self.destroy_exploration_operator = _make_destroy_random_workers_and_days(
-            workers_fraction=0.2,
-            days_fraction=0.1,
-        )
+        self.destroy_exploration_operator = _make_destroy_worst_window(0.25)
         self.repair_exploration_operator = (
             lambda lns: lns.repair_exact(
                 model_path=self.model_path,
@@ -358,21 +365,30 @@ class MBandit:
         )
         destroyed_workers = sorted(destroyed_workers_set)
         destroyed_days = sorted(destroyed_days_set)
-        if use_exploration:
+        destroyed_pairs_count = len(destroy_result)
+        if use_exploration or "window" in destroy_name:
             destroyed_target_type = "window"
             destroyed_target_ids = {
                 "workers": destroyed_workers,
                 "days": destroyed_days,
             }
+            destroyed_display = f"destoyed window: {destroyed_workers} x {destroyed_days}"
+        elif "random" in destroy_name:
+            destroyed_target_type = "random_pairs"
+            destroyed_target_ids = destroyed_pairs_count
+            destroyed_display = f"destroyed random: {destroyed_pairs_count} randum pairs"
         elif "worker" in destroy_name:
             destroyed_target_type = "workers"
             destroyed_target_ids = destroyed_workers
+            destroyed_display = f"destroyed workers: {destroyed_workers}"
         elif "day" in destroy_name:
             destroyed_target_type = "days"
             destroyed_target_ids = destroyed_days
+            destroyed_display = f"destroyed days: {destroyed_days}"
         else:
             destroyed_target_type = "pairs"
             destroyed_target_ids = sorted(destroy_result)
+            destroyed_display = f"destroyed pairs: {destroyed_target_ids}"
         repair_failed = False
         repair_error: Optional[str] = None
         try:
@@ -473,6 +489,7 @@ class MBandit:
             "repair_weight_updates": repair_weight_updates,
             "destroyed_target_type": destroyed_target_type,
             "destroyed_target_ids": destroyed_target_ids,
+            "destroyed_display": destroyed_display,
         }
 
     def final_push(self, k: int) -> None:
@@ -634,6 +651,8 @@ def _make_destroy_worst_window(fraction: float) -> Callable[[rws_lns], list[tupl
             cyclic=lns.instance.cyclicity,
         )
 
+        lns._last_destroy_selected_workers = list(worker_window)
+        lns._last_destroy_selected_days = list(day_window)
         if not worker_window or not day_window:
             return []
 
@@ -764,18 +783,18 @@ if __name__ == "__main__":
         step_runtime = perf_counter() - step_start
         elapsed_total = perf_counter() - loop_start
         last_iteration = int(step["iteration"])
-        destroyed_label = f"{step['destroyed_target_type']}={step['destroyed_target_ids']}"
+        destroyed_label = step["destroyed_display"]
 
         summary_line = (
             f"iter={step['iteration']} "
             f"time={elapsed_total:.3f}s "
-            f"violations={step['contender_conflicts']} "
+            f"objective={step['contender_objective']} "
             f"score={step['contender_score']} "
             f"{destroyed_label}"
         )
         if step["repair_failed"]:
             summary_line += " repair_failed"
-        is_improvement = step["contender_conflicts"] < step["incumbent_conflicts"]
+        is_improvement = step["contender_objective"] < step["incumbent_objective"]
         if is_improvement:
             print(f"{ANSI_GREEN}{summary_line}{ANSI_RESET}")
         elif step["used_exploration"]:
@@ -805,11 +824,7 @@ if __name__ == "__main__":
         )
         if step["repair_error"] is not None:
             log_lines.append(f"  repair_error={step['repair_error']}")
-        log_lines.append(
-            (
-                f"  destroyed_{step['destroyed_target_type']}={step['destroyed_target_ids']}"
-            )
-        )
+        log_lines.append(f"  destroyed={destroyed_label}")
         if step["weights_updated"]:
             print("  weight update (destroy):")
             log_lines.append("  weight update (destroy):")
@@ -833,7 +848,7 @@ if __name__ == "__main__":
                 )
                 print(line)
                 log_lines.append(line)
-        if mab.conflicts_current_solution == 0:
+        if mab.objective_current_solution <= 0.0:
             solved = True
             break
         if elapsed_total >= mab.global_timeout_seconds:
@@ -849,10 +864,11 @@ if __name__ == "__main__":
     if solved:
         print(
             f"Stopped after {last_iteration} iterations in {total_runtime:.3f}s "
-            "(zero conflicts)."
+            "(objective_current_solution <= 0)."
         )
         print("Final schedule:")
         mab.schedule.display_schedule()
+        mab.schedule.display_violations()
     elif timed_out:
         print(
             f"Timed out after {total_runtime:.3f}s at iteration {last_iteration}. "

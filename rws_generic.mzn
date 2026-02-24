@@ -75,10 +75,10 @@ array[1..d, 1..s] of var 0..n: slack_required_min;
 array[1..d, 1..s] of var 0..n: slack_required_max;
 var int: slack_forbidden_total;
 constraint slack_forbidden_total >= 0;
-
-constraint forall(worker in workers)(
-  sum(day in days)(bool2int(shift_of[worker, day] = 0)) + slack_offday_min[worker] >= 1
-);
+%
+% constraint forall(worker in workers)(
+%   sum(day in days)(bool2int(shift_of[worker, day] = 0)) + slack_offday_min[worker] >= 1
+% );
 
 % Consecutive run length per exact shift (including 0 = off)
 array[1..n, 1..d, 0..s] of var 0..d: shift_length_until;

@@ -9,8 +9,17 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from time import perf_counter
 from rws import RWS, rws_lns
 from rws_instance_loader import load_instance_and_schedule
+from multiarm_bandit import (
+    _make_destroy_random_days as _mab_make_destroy_random_days,
+    _make_destroy_random_workers as _mab_make_destroy_random_workers,
+    _make_destroy_worst_days as _mab_make_destroy_worst_days,
+    _make_destroy_worst_window as _mab_make_destroy_worst_window,
+    _make_destroy_worst_workers as _mab_make_destroy_worst_workers,
+    _make_repair_operator as _mab_make_repair_operator,
+)
 import matplotlib.pyplot as plt
 
 """
@@ -123,13 +132,14 @@ class drl_alns:
     clip_eps: float = 0.2
     update_epochs: int = 5
     rollout_length: int = 10
-    exploration_after_stagnation: int = 20  # Force exploration after N stagnation rounds
+    exploration_after_stagnation: int = 10  # Force exploration after N stagnation rounds
     tabu_length: int = 8  # Tabu list size
     # PPO / training hyperparameters
     gae_lambda: float = 0.95
     entropy_coef: float = 0.01
     value_coef: float = 0.1
     max_grad_norm: float = 0.5
+    low_conflict_improvement_bonus: float = 3.0
 
     def __post_init__(self):
         self.lns = rws_lns(
@@ -138,7 +148,7 @@ class drl_alns:
         )
         self.destroy_names = list(self.destroy_operators.keys())
         self.repair_names = list(self.repair_operators.keys())
-        # State vector: 6 features (see Table 1, removed search-budget)
+        # State vector: 6 features (see Table 1, removed search-budget).
         self.state_dim = 6
         # ActorCritic now expects n_severity=10, n_temp=50 by default
         self.model = ActorCritic(
@@ -148,9 +158,12 @@ class drl_alns:
             n_severity=10,
             n_temp=50,
         )
+        self._apply_mab_repair_prior()
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
-        self.best_conflicts = self._count_conflicts(self.schedule)
-        self.current_conflicts = self.best_conflicts
+        if self.low_conflict_improvement_bonus < 0:
+            raise ValueError("low_conflict_improvement_bonus must be >= 0")
+        self.best_objective = float("inf")
+        self.current_objective = float("inf")
         self.prev_improved = 0
         self.prev_best = 0
         self.prev_accepted = 0
@@ -164,8 +177,29 @@ class drl_alns:
         self.tabu_signatures = {}  # signature -> count
 
     # --------------------------------------------------------
-    def _count_conflicts(self, schedule):
-        return int(sum(schedule.count_total_violations().values()))
+    def _apply_mab_repair_prior(self) -> None:
+        """Bias initial repair policy toward fast solvers like MBandit."""
+        if not self.repair_names:
+            return
+        raw_weights = []
+        for name in self.repair_names:
+            if "fast" in name:
+                raw_weights.append(0.35)
+            elif "long" in name:
+                raw_weights.append(0.15)
+            else:
+                raw_weights.append(0.15)
+        total = sum(raw_weights)
+        probs = [weight / total for weight in raw_weights]
+        prior_logits = torch.log(
+            torch.tensor(
+                probs,
+                dtype=self.model.repair_head.bias.dtype,
+                device=self.model.repair_head.bias.device,
+            )
+        )
+        with torch.no_grad():
+            self.model.repair_head.bias.copy_(prior_logits)
 
     # --------------------------------------------------------
     def _get_state(self):
@@ -179,13 +213,16 @@ class drl_alns:
         current_accepted = float(self.prev_accepted)
         # current_improved: whether last accepted move improved incumbent
         current_improved = float(self.prev_improved)
-        # is_current_best: whether current equals best
-        is_current_best = 1.0 if self.current_conflicts <= self.best_conflicts else 0.0
-        # cost difference: -1.0 when current <= best, else normalized difference
-        if self.current_conflicts <= self.best_conflicts:
+        # is_current_best / cost_diff_best based on objective values.
+        if (not math.isfinite(self.current_objective)) or (not math.isfinite(self.best_objective)):
+            is_current_best = 1.0
+            cost_diff_best = -1.0
+        elif self.current_objective <= self.best_objective:
+            is_current_best = 1.0
             cost_diff_best = -1.0
         else:
-            cost_diff_best = (self.current_conflicts - self.best_conflicts) / max(1, self.best_conflicts)
+            is_current_best = 0.0
+            cost_diff_best = (self.current_objective - self.best_objective) / max(1.0, self.best_objective)
         stagnation_count = float(self.stagnation)
 
         return np.array([
@@ -286,6 +323,7 @@ class drl_alns:
         repair_name = self.repair_names[a_r]
         destroy_op = self.destroy_operators[destroy_name]
         repair_op = self.repair_operators[repair_name]
+        step_iteration = self.iteration + 1
         
         # Initialize fixed vars for fresh LNS step
         self.lns.incumbent = self.schedule
@@ -302,31 +340,112 @@ class drl_alns:
             destroyed = destroy_op(self.lns, severity)
             self.lns.destroyed_pairs = destroyed
         except Exception as e:
-            print(f"  ✗ Destroy failed: {e}")
-            return self._get_state(), -1.0
+            self.prev_accepted = 0
+            self.stagnation += 1
+            self.iteration = step_iteration
+            return self._get_state(), -1.0, {
+                "iteration": step_iteration,
+                "destroy_name": destroy_name,
+                "repair_name": repair_name,
+                "severity": severity,
+                "temperature": temperature,
+                "incumbent_objective": (
+                    self.current_objective if math.isfinite(self.current_objective) else None
+                ),
+                "contender_objective": None,
+                "accepted": False,
+                "new_best": False,
+                "destroy_failed": True,
+                "repair_failed": False,
+                "error": f"{type(e).__name__}: {e}",
+                "used_exploration": self.use_exploration_phase,
+                "stagnation": self.stagnation,
+            }
         
         # Execute repair
         try:
             repair_op(self.lns)
             contender = self.lns.contender
         except Exception as e:
-            print(f"  ✗ Repair failed: {e}")
-            contender = None
+            self.prev_accepted = 0
+            self.stagnation += 1
+            self.iteration = step_iteration
+            return self._get_state(), -1.0, {
+                "iteration": step_iteration,
+                "destroy_name": destroy_name,
+                "repair_name": repair_name,
+                "severity": severity,
+                "temperature": temperature,
+                "incumbent_objective": (
+                    self.current_objective if math.isfinite(self.current_objective) else None
+                ),
+                "contender_objective": None,
+                "accepted": False,
+                "new_best": False,
+                "destroy_failed": False,
+                "repair_failed": True,
+                "error": f"{type(e).__name__}: {e}",
+                "used_exploration": self.use_exploration_phase,
+                "stagnation": self.stagnation,
+            }
         
         if contender is None:
             # record that last candidate was not accepted
             self.prev_accepted = 0
-            return self._get_state(), -1.0
+            self.stagnation += 1
+            self.iteration = step_iteration
+            return self._get_state(), -1.0, {
+                "iteration": step_iteration,
+                "destroy_name": destroy_name,
+                "repair_name": repair_name,
+                "severity": severity,
+                "temperature": temperature,
+                "incumbent_objective": (
+                    self.current_objective if math.isfinite(self.current_objective) else None
+                ),
+                "contender_objective": None,
+                "accepted": False,
+                "new_best": False,
+                "destroy_failed": False,
+                "repair_failed": True,
+                "error": "repair operator did not produce contender",
+                "used_exploration": self.use_exploration_phase,
+                "stagnation": self.stagnation,
+            }
         
-        # Evaluate move
-        new_conf = self._count_conflicts(contender)
-        old_conf = self.current_conflicts
-        delta = new_conf - old_conf
+        # Evaluate move using MiniZinc objective only.
+        contender_objective_raw = getattr(self.lns, "contender_objective", None)
+        if contender_objective_raw is None:
+            self.prev_accepted = 0
+            self.stagnation += 1
+            self.iteration = step_iteration
+            return self._get_state(), -1.0, {
+                "iteration": step_iteration,
+                "destroy_name": destroy_name,
+                "repair_name": repair_name,
+                "severity": severity,
+                "temperature": temperature,
+                "incumbent_objective": (
+                    self.current_objective if math.isfinite(self.current_objective) else None
+                ),
+                "contender_objective": None,
+                "accepted": False,
+                "new_best": False,
+                "destroy_failed": False,
+                "repair_failed": True,
+                "error": "repair operator did not return objective",
+                "used_exploration": self.use_exploration_phase,
+                "stagnation": self.stagnation,
+            }
+        new_obj = float(contender_objective_raw)
+        old_obj = self.current_objective
+        has_old_obj = math.isfinite(old_obj)
+        delta = new_obj - old_obj if has_old_obj else float("-inf")
         
         # Simulated annealing acceptance
         accepted = False
         acceptance_prob = 0.0
-        if delta <= 0:
+        if (not has_old_obj) or delta <= 0:
             accepted = True
             acceptance_prob = 1.0
         else:
@@ -341,19 +460,22 @@ class drl_alns:
         
         if accepted:
             self.schedule = contender
-            self.current_conflicts = new_conf
+            self.current_objective = new_obj
 
             # Primary reward: relative improvement (normalized by baseline)
-            baseline_penalty = old_conf / max(1, 50)  # Normalize by typical conflict count
-            reward = -(new_conf - old_conf) / max(1, baseline_penalty)  # Reward improvement
+            if has_old_obj:
+                baseline_penalty = old_obj / 10.0
+                reward = -(new_obj - old_obj) / max(1.0, baseline_penalty)  # Reward improvement
+            # Extra bonus in low-objective regions.
+            reward += self.low_conflict_improvement_bonus / (1.0 + max(0.0, new_obj))
 
             # Distinguish between (a) improvement but not a new global best (small bonus)
             # and (b) new global best (larger bonus).
-            if new_conf < old_conf:
+            if (not has_old_obj) or (new_obj < old_obj):
                 improved = 1
-                if new_conf < self.best_conflicts:
+                if new_obj < self.best_objective:
                     # New global best
-                    self.best_conflicts = new_conf
+                    self.best_objective = new_obj
                     reward += 10.0
                     new_best = 1
                 else:
@@ -376,33 +498,30 @@ class drl_alns:
             self.prev_accepted = 0
         
         # Periodically clean tabu list
-        if self.iteration % self.tabu_length == 0:
+        if step_iteration % self.tabu_length == 0:
             self._update_tabu_after_eviction()
         
         self.prev_improved = improved
         self.prev_best = new_best
-        self.iteration += 1
+        self.iteration = step_iteration
         
         cumulative_reward += reward
-        
-        # ====== DETAILED STEP METRICS ======
-        status = "[ACCEPT]" if accepted else "[REJECT]"
-        improvement_marker = "DOWN" if new_conf < old_conf else "SAME" if new_conf == old_conf else "UP"
-        best_marker = "NEW BEST!" if new_best else ""
-        acceptance_prob_pct = (acceptance_prob * 100) if delta > 0 else 100.0
-        exploration_marker = " (EXPLORATION)" if self.use_exploration_phase else ""
-        
-        print(
-            f"  Step {self.iteration:4d} | "
-            f"D:{destroy_name:20s} R:{repair_name:18s} | "
-            f"Sev:{severity:.3f} Tmp:{temperature:.2f} | "
-            f"Conflicts:{old_conf:3d}->{new_conf:3d}({improvement_marker:4s}) Best:{self.best_conflicts:3d} | "
-            f"AcceptProb:{acceptance_prob_pct:5.1f}% Reward:{reward:+.3f} | "
-            f"{status} {best_marker}{exploration_marker} | "
-            f"Stagnation:{self.stagnation}"
-        )
-        
-        return self._get_state(), reward
+        return self._get_state(), reward, {
+            "iteration": step_iteration,
+            "destroy_name": destroy_name,
+            "repair_name": repair_name,
+            "severity": severity,
+            "temperature": temperature,
+            "incumbent_objective": old_obj if has_old_obj else None,
+            "contender_objective": new_obj,
+            "accepted": accepted,
+            "new_best": bool(new_best),
+            "destroy_failed": False,
+            "repair_failed": False,
+            "error": None,
+            "used_exploration": self.use_exploration_phase,
+            "stagnation": self.stagnation,
+        }
 
     # --------------------------------------------------------
     def _ppo_update(self, states, actions_discrete, old_log_probs, returns, advantages):
@@ -478,8 +597,8 @@ class drl_alns:
             "severity": [],
             "temperature": [],
             "reward": [],
-            "current_conflicts": [],
-            "best_conflicts": [],
+            "current_objective": [],
+            "best_objective": [],
             "stagnation": [],
             "episode_return": [],
             "policy_loss": [],
@@ -487,11 +606,17 @@ class drl_alns:
             "entropy": [],
             "accepted_count": [],
             "cumulative_rewards": [],
+            "rollout_length": self.rollout_length,
         }
 
-        print("\n" + "="*150)
-        print(f"{'Training DRL-ALNS with PPO':^150}")
-        print("="*150 + "\n")
+        loop_start = perf_counter()
+        ANSI_GREEN = "\033[32m"
+        ANSI_PURPLE = "\033[35m"
+        ANSI_RESET = "\033[0m"
+        print(
+            f"training=drl_ppo workers={self.instance.num_workers} days={self.instance.num_days} "
+            f"iterations={iterations} rollout_length={self.rollout_length}"
+        )
 
         interrupted = False
 
@@ -508,33 +633,49 @@ class drl_alns:
                 cumulative_reward = 0.0
                 accepted_count = 0
 
-                print(f"\n{'-'*150}")
-                print(f"EPOCH {it+1:3d}/{iterations} | Instance: {self.instance.num_workers} workers, {self.instance.num_days} days")
-                print(f"{'-'*150}\n")
-
                 for step_i in range(self.rollout_length):
 
                     a_d, a_r, a_sev, a_temp, log_p, value = self._select_action(state)
 
-                    # ⚠️ This is where Ctrl+C typically happens (MiniZinc)
-                    next_state, reward = self.step(a_d, a_r, a_sev, a_temp, cumulative_reward)
+                    step_start = perf_counter()
+                    next_state, reward, step_info = self.step(a_d, a_r, a_sev, a_temp, cumulative_reward)
+                    step_runtime = perf_counter() - step_start
+                    elapsed_total = perf_counter() - loop_start
 
-                    severity = (float(a_sev) + 1.0) / 10.0
-                    temperature = 0.1 + (float(a_temp) / 49.0) * (5.0 - 0.1)
-
-                    if reward > -1.0:
+                    if step_info["accepted"]:
                         accepted_count += 1
 
                     cumulative_reward += reward
 
+                    summary_line = (
+                        f"iter={step_info['iteration']} "
+                        f"time={elapsed_total:.3f}s "
+                        f"step_runtime={step_runtime:.3f}s "
+                        f"destroy={step_info['destroy_name']} "
+                        f"repair={step_info['repair_name']} "
+                        f"objective={step_info['incumbent_objective']}->{step_info['contender_objective']} "
+                        f"reward={reward:+.3f} "
+                        f"accepted={step_info['accepted']} "
+                        f"used_exploration={step_info['used_exploration']} "
+                        f"stagnation={step_info['stagnation']}"
+                    )
+                    if step_info["error"] is not None:
+                        summary_line += " repair_failed"
+                    if step_info["new_best"]:
+                        print(f"{ANSI_GREEN}{summary_line}{ANSI_RESET}")
+                    elif step_info["used_exploration"]:
+                        print(f"{ANSI_PURPLE}{summary_line}{ANSI_RESET}")
+                    else:
+                        print(summary_line)
+
                     # Logging
-                    log["destroy"].append(self.destroy_names[a_d])
-                    log["repair"].append(self.repair_names[a_r])
-                    log["severity"].append(severity)
-                    log["temperature"].append(temperature)
+                    log["destroy"].append(step_info["destroy_name"])
+                    log["repair"].append(step_info["repair_name"])
+                    log["severity"].append(step_info["severity"])
+                    log["temperature"].append(step_info["temperature"])
                     log["reward"].append(reward)
-                    log["current_conflicts"].append(self.current_conflicts)
-                    log["best_conflicts"].append(self.best_conflicts)
+                    log["current_objective"].append(self.current_objective)
+                    log["best_objective"].append(self.best_objective)
                     log["stagnation"].append(self.stagnation)
 
                     # Store for PPO
@@ -552,21 +693,6 @@ class drl_alns:
                 log["episode_return"].append(episode_return)
                 log["accepted_count"].append(accepted_count)
                 log["cumulative_rewards"].append(cumulative_reward)
-
-                print(f"\n{'-'*150}")
-                print(f"EPOCH {it+1:3d} SUMMARY")
-                print(f"{'-'*150}")
-
-                exploration_status = "🔍 EXPLORATION PHASE" if self.use_exploration_phase else "🎯 NORMAL"
-
-                print(
-                    f"  Best Conflicts:      {self.best_conflicts:3d}\n"
-                    f"  Current Conflicts:   {self.current_conflicts:3d}\n"
-                    f"  Stagnation Counter:  {self.stagnation:3d}  ({exploration_status})\n"
-                    f"  Episode Return:      {episode_return:+.3f}\n"
-                    f"  Cumulative Reward:   {cumulative_reward:+.3f}\n"
-                    f"  Acceptance Rate:     {acceptance_rate:.1f}% ({accepted_count}/{self.rollout_length})\n"
-                )
 
                 # ==== Prepare PPO tensors ====
                 states = torch.from_numpy(np.array(states_list, dtype=np.float32))
@@ -608,19 +734,20 @@ class drl_alns:
                 log["policy_loss"].append(pl)
                 log["value_loss"].append(vl)
                 log["entropy"].append(ent)
-
                 print(
-                    f"  Policy Loss:         {pl:.6f}\n"
-                    f"  Value Loss:          {vl:.6f}\n"
-                    f"  Entropy:             {ent:.6f}\n"
+                    f"epoch={it+1} "
+                    f"episode_return={episode_return:+.3f} "
+                    f"acceptance_rate={acceptance_rate:.1f}% "
+                    f"best_objective={self.best_objective if math.isfinite(self.best_objective) else None} "
+                    f"current_objective={self.current_objective if math.isfinite(self.current_objective) else None} "
+                    f"policy_loss={pl:.6f} value_loss={vl:.6f} entropy={ent:.6f}"
                 )
-                print(f"{'-'*150}\n")
 
                 # Record metrics
                 self.metrics_monitor.record(
                     epoch=it + 1,
-                    best_conflicts=self.best_conflicts,
-                    current_conflicts=self.current_conflicts,
+                    best_objective=self.best_objective,
+                    current_objective=self.current_objective,
                     episode_return=episode_return,
                     cumulative_reward=cumulative_reward,
                     acceptance_rate=acceptance_rate,
@@ -631,12 +758,12 @@ class drl_alns:
                 )
 
                 # Early stopping
-                if self.best_conflicts == 0:
-                    print(f"\n{'*'*20} SOLVED with zero conflicts at iteration {it+1}! {'*'*20}\n")
+                if self.best_objective <= 0.0:
+                    print(f"solved=True stop_iter={it+1} reason=objective_zero")
                     break
 
-                if self.stagnation >= 100:
-                    print(f"\n{'!'*20} Stopping: stagnation >= 100 at iteration {it+1} {'!'*20}\n")
+                if self.stagnation >= 20:
+                    print(f"solved=False stop_iter={it+1} reason=stagnation_limit")
                     break
 
         except KeyboardInterrupt:
@@ -648,9 +775,10 @@ class drl_alns:
 
         finally:
 
-            print("\n" + "="*150)
-            print(f"Training completed. Best solution: {self.best_conflicts} conflicts")
-            print("="*150 + "\n")
+            print(
+                f"training_completed=True best_objective="
+                f"{self.best_objective if math.isfinite(self.best_objective) else None}"
+            )
 
             self.metrics_monitor.save_csv("drl_alns_training_metrics.csv")
 
@@ -660,101 +788,32 @@ class drl_alns:
 # DESTROY / REPAIR HELPERS
 # =========================
 def _make_repair_operator(model_path: Path, solver_name: str, timeout_seconds: int):
-    def op(lns: rws_lns):
-        return lns.repair_exact(
-            model_path=model_path,
-            solver_name=solver_name,
-            timeout_seconds=timeout_seconds
-        )
-    return op
+    return _mab_make_repair_operator(model_path, solver_name, timeout_seconds)
 
-def _ceil_fraction_count(total: int, fraction: float) -> int:
-    """Compute at least one unit from a fraction of total"""
-    return max(1, int(total * fraction))
 
-def _take_ranked_ids(ranked_dict, k: int):
-    """Return top-k IDs based on a ranking dictionary"""
-    sorted_items = sorted(ranked_dict.items(), key=lambda x: x[1], reverse=True)
-    return [entity_id for entity_id, _ in sorted_items[:k]]
+def _severity_to_fraction(severity: float) -> float:
+    """Convert DRL severity to bounded destroy fraction."""
+    return min(1.0, max(0.0, float(severity)))
+
+
+def _wrap_fraction_destroy(
+    factory: Callable[[float], Callable[[rws_lns], list[tuple[int, int]]]]
+) -> Callable[[], Callable[[rws_lns, float], list[tuple[int, int]]]]:
+    """Wrap MBandit fraction-based destroy factory into DRL severity signature."""
+    def _maker() -> Callable[[rws_lns, float], list[tuple[int, int]]]:
+        def _op(lns: rws_lns, severity: float) -> list[tuple[int, int]]:
+            return factory(_severity_to_fraction(severity))(lns)
+        return _op
+    return _maker
 
 # -------------------------
 # Destroy Operators (use severity)
 # -------------------------
-def _make_destroy_random_workers():
-    def op(lns: rws_lns, severity: float):
-        k = _ceil_fraction_count(lns.instance.num_workers, severity)
-        ids = random.sample(range(lns.instance.num_workers), k)
-        return lns.destroy_worker(ids)
-    return op
-
-def _make_destroy_random_days():
-    def op(lns: rws_lns, severity: float):
-        k = _ceil_fraction_count(lns.instance.num_days, severity)
-        ids = random.sample(range(lns.instance.num_days), k)
-        return lns.destroy_day(ids)
-    return op
-
-def _make_destroy_worst_workers():
-    def op(lns: rws_lns, severity: float):
-        schedule = lns.incumbent
-        k = _ceil_fraction_count(lns.instance.num_workers, severity)
-        ids = _take_ranked_ids(schedule.worker_ranked_by_violations, k)
-        return lns.destroy_worker(ids)
-    return op
-
-def _make_destroy_worst_days():
-    def op(lns: rws_lns, severity: float):
-        schedule = lns.incumbent
-        k = _ceil_fraction_count(lns.instance.num_days, severity)
-        ids = _take_ranked_ids(schedule.days_ranked_by_violations, k)
-        return lns.destroy_day(ids)
-    return op
-
-# def _make_destroy_worst_worker_local_days(window_size: int = 5):
-#     def op(lns: rws_lns, severity: float = None):
-#         """Destroy local window around worst worker. Severity unused (uses fixed window)."""
-#         schedule = lns.incumbent
-#         worker = max(
-#             schedule.worker_ranked_by_violations,
-#             key=schedule.worker_ranked_by_violations.get,
-#             default=0
-#         )
-#         max_start = max(0, lns.instance.num_days - window_size)
-#         start = random.randint(0, max_start)
-#         days = list(range(start, start + window_size))
-#         freed = []
-#         for d in days:
-#             if d < len(schedule.assignment) and worker < len(schedule.assignment[d]):
-#                 key = (d, worker)
-#                 if key in lns.fixed_vars:
-#                     del lns.fixed_vars[key]
-#                 freed.append(key)
-#         return freed
-#     return op
-
-# def _make_destroy_worst_day_top_workers(num_workers: int = 3):
-#     def op(lns: rws_lns, severity: float = None):
-#         """Destroy top-k workers on worst day. Severity unused (uses fixed k)."""
-#         schedule = lns.incumbent
-#         day = max(
-#             schedule.days_ranked_by_violations,
-#             key=schedule.days_ranked_by_violations.get,
-#             default=0
-#         )
-#         ranked = sorted(
-#             schedule.worker_ranked_by_violations.items(),
-#             key=lambda x: x[1],
-#             reverse=True
-#         )
-#         workers = [w for w, _ in ranked[:num_workers]]
-#         freed = []
-#         for w in workers:
-#             key = (day, w)
-#             if key in lns.fixed_vars:
-#                 del lns.fixed_vars[key]
-#             freed.append(key)
-#         return freed
-#     return op
+_make_destroy_random_workers = _wrap_fraction_destroy(_mab_make_destroy_random_workers)
+_make_destroy_random_days = _wrap_fraction_destroy(_mab_make_destroy_random_days)
+_make_destroy_worst_workers = _wrap_fraction_destroy(_mab_make_destroy_worst_workers)
+_make_destroy_worst_days = _wrap_fraction_destroy(_mab_make_destroy_worst_days)
+_make_destroy_worst_window = _wrap_fraction_destroy(_mab_make_destroy_worst_window)
 
 def _smooth(x, k=30):
     if len(x) < k:
@@ -762,9 +821,14 @@ def _smooth(x, k=30):
     import numpy as np
     return np.convolve(x, np.ones(k)/k, mode="valid")
 
-def plot_training(log):
-    #Plot training metrics: episode return, conflicts, losses, entropy, acceptance rate.
+def plot_training(log, show: bool = False, output_path: Path | None = None):
+    #Plot training metrics: episode return, objective, losses, entropy, acceptance rate.
     import matplotlib.pyplot as plt
+    def _legend_if_present() -> None:
+        handles, labels = plt.gca().get_legend_handles_labels()
+        if labels:
+            plt.legend()
+
     plt.figure(figsize=(18, 12))
     
     # -----------------------
@@ -779,22 +843,25 @@ def plot_training(log):
     plt.title("Episode Return Over Time", fontsize=12, fontweight='bold')
     plt.xlabel("Epoch")
     plt.ylabel("Return")
-    plt.legend()
+    _legend_if_present()
     plt.grid(True, alpha=0.3)
     
     # -----------------------
-    # 2) Best & Current Conflicts
+    # 2) Best & Current Objective
     # -----------------------
     plt.subplot(2, 3, 2)
-    if "best_conflicts" in log and log["best_conflicts"]:
-        epochs = list(range(len(log["best_conflicts"])))
-        plt.plot(epochs, log["best_conflicts"], marker='o', label="Best", linewidth=2)
-    if "current_conflicts" in log and log["current_conflicts"]:
-        plt.plot(epochs, log["current_conflicts"], marker='s', label="Current", linewidth=2, alpha=0.7)
-    plt.title("Conflicts Over Time", fontsize=12, fontweight='bold')
+    epochs = None
+    if "best_objective" in log and log["best_objective"]:
+        epochs = list(range(len(log["best_objective"])))
+        plt.plot(epochs, log["best_objective"], marker='o', label="Best", linewidth=2)
+    if "current_objective" in log and log["current_objective"]:
+        if epochs is None:
+            epochs = list(range(len(log["current_objective"])))
+        plt.plot(epochs, log["current_objective"], marker='s', label="Current", linewidth=2, alpha=0.7)
+    plt.title("Objective Over Time", fontsize=12, fontweight='bold')
     plt.xlabel("Step")
-    plt.ylabel("Number of Conflicts")
-    plt.legend()
+    plt.ylabel("MiniZinc Objective")
+    _legend_if_present()
     plt.grid(True, alpha=0.3)
     
     # -----------------------
@@ -810,7 +877,7 @@ def plot_training(log):
     plt.title("Loss Curves", fontsize=12, fontweight='bold')
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.legend()
+    _legend_if_present()
     plt.grid(True, alpha=0.3)
     
     # -----------------------
@@ -824,7 +891,7 @@ def plot_training(log):
     plt.title("Policy Entropy (Exploration)", fontsize=12, fontweight='bold')
     plt.xlabel("Epoch")
     plt.ylabel("Entropy")
-    plt.legend()
+    _legend_if_present()
     plt.grid(True, alpha=0.3)
     
     # -----------------------
@@ -832,7 +899,9 @@ def plot_training(log):
     # -----------------------
     plt.subplot(2, 3, 5)
     if "accepted_count" in log and log["accepted_count"]:
-        acceptance_rates = [count / 32 * 100 for count in log["accepted_count"]]  # Assuming rollout_length=32
+        rollout_length = int(log.get("rollout_length", 32))
+        rollout_length = max(1, rollout_length)
+        acceptance_rates = [count / rollout_length * 100 for count in log["accepted_count"]]
         smoothed_ar = _smooth(acceptance_rates, 5)
         plt.plot(smoothed_ar, linewidth=2, label="Acceptance Rate (smoothed)")
         plt.plot(acceptance_rates, alpha=0.3, label="Raw")
@@ -841,7 +910,7 @@ def plot_training(log):
     plt.xlabel("Epoch")
     plt.ylabel("Acceptance Rate (%)")
     plt.ylim([0, 100])
-    plt.legend()
+    _legend_if_present()
     plt.grid(True, alpha=0.3)
     
     # -----------------------
@@ -854,18 +923,24 @@ def plot_training(log):
     plt.title("Stagnation Counter", fontsize=12, fontweight='bold')
     plt.xlabel("Step")
     plt.ylabel("Steps Since Improvement")
-    plt.legend()
+    _legend_if_present()
     plt.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.show()
+    if output_path is not None:
+        plt.savefig(output_path, dpi=150)
+        print(f"Wrote training plot: {output_path}")
+    if show:
+        plt.show()
+    else:
+        plt.close()
 
 # ============================================================
 # MAIN
 # ============================================================
 if __name__ == "__main__":
     base = Path(__file__).resolve().parent
-    instance_path = base / "Instances1-50" / "Example1.txt"
+    instance_path = base / "Instances1-50" / "Example100.txt"
     instance, schedule = load_instance_and_schedule(
         file_path=instance_path,
         cyclicity=True
@@ -883,8 +958,7 @@ if __name__ == "__main__":
         "destroy_random_workers": _make_destroy_random_workers(),
         "destroy_worst_days": _make_destroy_worst_days(),
         "destroy_random_days": _make_destroy_random_days(),
-        #"destroy_worst_worker_window5": _make_destroy_worst_worker_local_days(5),
-        #"destroy_worst_day_top3_workers": _make_destroy_worst_day_top_workers(3),
+        "destroy_worst_window": _make_destroy_worst_window(),
     }
     solver = drl_alns(
         instance=instance,
@@ -905,4 +979,4 @@ if __name__ == "__main__":
     final_schedule.display_violations()
 
     if log:
-        plot_training(log)
+        plot_training(log, show=False, output_path=base / "drl-training.png")
