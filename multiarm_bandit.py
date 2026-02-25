@@ -96,34 +96,26 @@ class MBandit:
     stagnation_rounds: int = 0
 
     def __post_init__(self) -> None:
-        """Validate configuration and initialize operators, weights, and LNS state."""
+        """Initialize operators, weights, and LNS state."""
         # Warmstart objective is unknown until a repair solve returns a value.
         self.objective_best_solution = float("inf")
         self.objective_current_solution = float("inf")
 
-        if self.iterations_till_weight_update <= 0:
-            raise ValueError("iterations_till_weight_update must be > 0")
-        if not (0.0 <= self.reaction_factor <= 1.0):
-            raise ValueError("reaction_factor must be in [0, 1]")
-        if self.global_timeout_seconds <= 0:
-            raise ValueError("global_timeout_seconds must be > 0")
-        if self.exploration_after_stagnation <= 0:
-            raise ValueError("exploration_after_stagnation must be > 0")
-        if self.annealing_temperature <= 0:
-            raise ValueError("annealing_temperature must be > 0")
-        if self.min_annealing_temperature <= 0:
-            raise ValueError("min_temperature must be > 0")
+        if min(
+            self.iterations_till_weight_update,
+            self.global_timeout_seconds,
+            self.exploration_after_stagnation,
+            self.annealing_temperature,
+            self.min_annealing_temperature,
+            self.minizinc_timeout_seconds,
+            self.exploratory_timeout_seconds,
+            self.destroy_tabu_length,
+        ) <= 0:
+            raise ValueError("positive configuration values required")
+        if not (0.0 <= self.reaction_factor <= 1.0 and 0 < self.time_decay_annealing <= 1):
+            raise ValueError("reaction_factor/time_decay out of bounds")
         if self.min_annealing_temperature > self.annealing_temperature:
             raise ValueError("min_temperature must be <= annealing_temperature")
-        if not (0 < self.time_decay_annealing <= 1):
-            raise ValueError("time_decay must be in (0, 1]")
-
-        if self.minizinc_timeout_seconds <= 0:
-            raise ValueError("minizinc_timeout_seconds must be > 0")
-        if self.exploratory_timeout_seconds <= 0:
-            raise ValueError("exploratory_timeout_seconds must be > 0")
-        if self.destroy_tabu_length <= 0:
-            raise ValueError("destroy_tabu_length must be > 0")
         if self.equal_move_allowed_freezeout < 0:
             raise ValueError("equal_move_allowed_freezeout must be >= 0")
 
@@ -181,11 +173,9 @@ class MBandit:
         if set(weights.keys()) != set(keys):
             raise ValueError("weight keys must match operator keys")
 
-        for key, value in weights.items():
-            if not isinstance(value, (int, float)) or value <= 0:
-                raise ValueError(f"weight for {key!r} must be a positive number")
-
-        total = float(sum(weights.values()))
+        total = float(sum(float(weights[key]) for key in keys))
+        if total <= 0.0:
+            raise ValueError("weights must sum to > 0")
         return {key: float(weights[key]) / total for key in keys}
 
     def _choose_repair_operator(self) -> tuple[str, Callable[..., Any]]:
@@ -243,11 +233,11 @@ class MBandit:
 
         for _ in range(attempts):
             lns._initialize_fixed_vars(self.schedule)
-            if use_exploration:
-                destroy_name = "destroy_exploration"
-                destroy_op = self.destroy_exploration_operator
-            else:
-                destroy_name, destroy_op = self._choose_destroy_operator()
+            destroy_name, destroy_op = (
+                ("destroy_exploration", self.destroy_exploration_operator)
+                if use_exploration
+                else self._choose_destroy_operator()
+            )
 
             destroy_result = destroy_op(lns)
             workers, days = self._destroyed_id_sets(
@@ -334,11 +324,11 @@ class MBandit:
         incumbent_objective = self.objective_current_solution
 
         use_exploration = self.stagnation_rounds >= self.exploration_after_stagnation
-        if use_exploration:
-            repair_name = "repair_exploration"
-            repair_op = self.repair_exploration_operator
-        else:
-            repair_name, repair_op = self._choose_repair_operator()
+        repair_name, repair_op = (
+            ("repair_exploration", self.repair_exploration_operator)
+            if use_exploration
+            else self._choose_repair_operator()
+        )
         update_this_round = (
             self.lns_loop_counter % self.iterations_till_weight_update == 0
         )
@@ -359,30 +349,14 @@ class MBandit:
         )
         destroyed_workers = sorted(destroyed_workers_set)
         destroyed_days = sorted(destroyed_days_set)
-        destroyed_pairs_count = len(destroy_result)
         if use_exploration or "window" in destroy_name:
-            destroyed_target_type = "window"
-            destroyed_target_ids = {
-                "workers": destroyed_workers,
-                "days": destroyed_days,
-            }
             destroyed_display = f"destroyed window: {destroyed_workers} x {destroyed_days}"
-        elif "random" in destroy_name:
-            destroyed_target_type = "random_pairs"
-            destroyed_target_ids = destroyed_pairs_count
-            destroyed_display = f"destroyed random: {destroyed_pairs_count} random pairs"
         elif "worker" in destroy_name:
-            destroyed_target_type = "workers"
-            destroyed_target_ids = destroyed_workers
             destroyed_display = f"destroyed workers: {destroyed_workers}"
         elif "day" in destroy_name:
-            destroyed_target_type = "days"
-            destroyed_target_ids = destroyed_days
             destroyed_display = f"destroyed days: {destroyed_days}"
         else:
-            destroyed_target_type = "pairs"
-            destroyed_target_ids = sorted(destroy_result)
-            destroyed_display = f"destroyed pairs: {destroyed_target_ids}"
+            destroyed_display = f"destroyed pairs: {len(destroy_result)}"
         repair_failed = False
         repair_error: Optional[str] = None
         try:
@@ -474,8 +448,6 @@ class MBandit:
             "weights_updated": weights_updated,
             "destroy_weight_updates": destroy_weight_updates,
             "repair_weight_updates": repair_weight_updates,
-            "destroyed_target_type": destroyed_target_type,
-            "destroyed_target_ids": destroyed_target_ids,
             "destroyed_display": destroyed_display,
         }
 
@@ -608,9 +580,6 @@ def _make_destroy_worst_days(fraction: float) -> Callable[[rws_lns], list[tuple[
 
 def _make_destroy_random_window(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
     """Build a destroy op that frees a random workers x days index window."""
-    if not (0.0 <= fraction <= 1.0):
-        raise ValueError("fraction must be in [0, 1]")
-
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
         """Destroy entries in the smallest interval window covering sampled IDs."""
 
@@ -671,8 +640,6 @@ if __name__ == "__main__":
     base = Path(__file__).resolve().parent
     raw_example = input("Example number [1]: ").strip()
     example_number = 1 if raw_example == "" else int(raw_example)
-    if example_number < 0:
-        raise ValueError("example number must be >= 0")
 
     instance_path = base / "Instances1-50" / f"Example{example_number}.txt"
     if not instance_path.exists():

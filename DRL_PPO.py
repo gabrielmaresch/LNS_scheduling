@@ -176,6 +176,21 @@ class drl_alns:
         self.tabu_history = deque(maxlen=self.tabu_length)
         self.tabu_signatures = {}  # signature -> count
 
+    def reset_instance(self, instance: RWS.Instance, schedule: RWS.Schedule) -> None:
+        """Reset search state for a new training instance while keeping PPO weights."""
+        self.instance = instance
+        self.schedule = schedule
+        self.lns = rws_lns(instance=instance, incumbent=schedule)
+        self.best_objective = float("inf")
+        self.current_objective = float("inf")
+        self.prev_improved = 0
+        self.prev_best = 0
+        self.prev_accepted = 0
+        self.stagnation = 0
+        self.iteration = 0
+        self.tabu_history.clear()
+        self.tabu_signatures.clear()
+
     # --------------------------------------------------------
     def _apply_mab_repair_prior(self) -> None:
         """Bias initial repair policy toward fast solvers like MBandit."""
@@ -587,9 +602,20 @@ class drl_alns:
         return last_policy, last_value, last_entropy
 
     # ------------------------------------------------------
-    def train(self, iterations=2000, checkpoint_path: str | Path | None = None):
-
-        state = self._get_state()
+    def train(
+        self,
+        total_steps: int = 2000,
+        instance_paths: list[Path] = (),
+        per_instance_cap: int = 500,
+        checkpoint_path: str | Path | None = None,
+    ):
+        if total_steps <= 0:
+            raise ValueError("total_steps must be > 0")
+        if per_instance_cap <= 0:
+            raise ValueError("per_instance_cap must be > 0")
+        training_paths = list(instance_paths)
+        if not training_paths:
+            raise ValueError("instance_paths must not be empty")
 
         log = {
             "destroy": [],
@@ -614,160 +640,177 @@ class drl_alns:
         ANSI_PURPLE = "\033[35m"
         ANSI_RESET = "\033[0m"
         print(
-            f"training=drl_ppo workers={self.instance.num_workers} days={self.instance.num_days} "
-            f"iterations={iterations} rollout_length={self.rollout_length}"
+            f"training=drl_ppo total_steps={total_steps} rollout_length={self.rollout_length} "
+            f"instances={len(training_paths)} per_instance_cap={per_instance_cap}"
         )
 
-        interrupted = False
+        global_steps = 0
+        epoch = 0
 
         try:
+            while global_steps < total_steps:
+                for instance_path in training_paths:
+                    if global_steps >= total_steps:
+                        break
 
-            for it in range(iterations):
-
-                states_list = []
-                actions_discrete_list = []
-                rewards = []
-                log_probs = []
-                values = []
-
-                cumulative_reward = 0.0
-                accepted_count = 0
-
-                for step_i in range(self.rollout_length):
-
-                    a_d, a_r, a_sev, a_temp, log_p, value = self._select_action(state)
-
-                    step_start = perf_counter()
-                    next_state, reward, step_info = self.step(a_d, a_r, a_sev, a_temp, cumulative_reward)
-                    step_runtime = perf_counter() - step_start
-                    elapsed_total = perf_counter() - loop_start
-
-                    if step_info["accepted"]:
-                        accepted_count += 1
-
-                    cumulative_reward += reward
-
-                    summary_line = (
-                        f"iter={step_info['iteration']} "
-                        f"time={elapsed_total:.3f}s "
-                        f"step_runtime={step_runtime:.3f}s "
-                        f"destroy={step_info['destroy_name']} "
-                        f"repair={step_info['repair_name']} "
-                        f"objective={step_info['incumbent_objective']}->{step_info['contender_objective']} "
-                        f"reward={reward:+.3f} "
-                        f"accepted={step_info['accepted']} "
-                        f"used_exploration={step_info['used_exploration']} "
-                        f"stagnation={step_info['stagnation']}"
+                    instance, schedule = load_instance_and_schedule(
+                        file_path=instance_path,
+                        cyclicity=True,
+                        initial_schedule="random",
                     )
-                    if step_info["error"] is not None:
-                        summary_line += " repair_failed"
-                    if step_info["new_best"]:
-                        print(f"{ANSI_GREEN}{summary_line}{ANSI_RESET}")
-                    elif step_info["used_exploration"]:
-                        print(f"{ANSI_PURPLE}{summary_line}{ANSI_RESET}")
-                    else:
-                        print(summary_line)
+                    self.reset_instance(instance=instance, schedule=schedule)
+                    print(f"instance_start={instance_path.name}")
 
-                    # Logging
-                    log["destroy"].append(step_info["destroy_name"])
-                    log["repair"].append(step_info["repair_name"])
-                    log["severity"].append(step_info["severity"])
-                    log["temperature"].append(step_info["temperature"])
-                    log["reward"].append(reward)
-                    log["current_objective"].append(self.current_objective)
-                    log["best_objective"].append(self.best_objective)
-                    log["stagnation"].append(self.stagnation)
+                    state = self._get_state()
+                    instance_steps = 0
 
-                    # Store for PPO
-                    states_list.append(state)
-                    actions_discrete_list.append([a_d, a_r, a_sev, a_temp])
-                    rewards.append(reward)
-                    log_probs.append(log_p)
-                    values.append(value)
+                    while (
+                        global_steps < total_steps
+                        and instance_steps < per_instance_cap
+                        and self.best_objective > 0.0
+                        and self.stagnation < 20
+                    ):
+                        rollout_steps = min(
+                            self.rollout_length,
+                            per_instance_cap - instance_steps,
+                            total_steps - global_steps,
+                        )
 
-                    state = next_state
+                        states_list = []
+                        actions_discrete_list = []
+                        rewards = []
+                        log_probs = []
+                        values = []
 
-                episode_return = sum(rewards)
-                acceptance_rate = accepted_count / self.rollout_length * 100
+                        cumulative_reward = 0.0
+                        accepted_count = 0
 
-                log["episode_return"].append(episode_return)
-                log["accepted_count"].append(accepted_count)
-                log["cumulative_rewards"].append(cumulative_reward)
+                        for _ in range(rollout_steps):
+                            a_d, a_r, a_sev, a_temp, log_p, value = self._select_action(state)
 
-                # ==== Prepare PPO tensors ====
-                states = torch.from_numpy(np.array(states_list, dtype=np.float32))
-                actions_discrete = torch.tensor(actions_discrete_list, dtype=torch.long)
-                old_log_probs = torch.stack(log_probs).detach()
-                values = torch.stack(values)
+                            step_start = perf_counter()
+                            next_state, reward, step_info = self.step(a_d, a_r, a_sev, a_temp, cumulative_reward)
+                            step_runtime = perf_counter() - step_start
+                            elapsed_total = perf_counter() - loop_start
 
-                # ===== GAE =====
-                values_t = values.detach().squeeze()
-                T = len(rewards)
+                            if step_info["accepted"]:
+                                accepted_count += 1
+                            cumulative_reward += reward
 
-                with torch.no_grad():
-                    _, _, _, _, last_v = self.model(torch.from_numpy(state).float().unsqueeze(0))
-                    last_value = last_v.squeeze().item()
+                            summary_line = (
+                                f"step={global_steps + 1} "
+                                f"iter={step_info['iteration']} "
+                                f"time={elapsed_total:.3f}s "
+                                f"step_runtime={step_runtime:.3f}s "
+                                f"destroy={step_info['destroy_name']} "
+                                f"repair={step_info['repair_name']} "
+                                f"objective={step_info['incumbent_objective']}->{step_info['contender_objective']} "
+                                f"reward={reward:+.3f} "
+                                f"accepted={step_info['accepted']} "
+                                f"used_exploration={step_info['used_exploration']} "
+                                f"stagnation={step_info['stagnation']}"
+                            )
+                            if step_info["error"] is not None:
+                                summary_line += " repair_failed"
+                            if step_info["new_best"]:
+                                print(f"{ANSI_GREEN}{summary_line}{ANSI_RESET}")
+                            elif step_info["used_exploration"]:
+                                print(f"{ANSI_PURPLE}{summary_line}{ANSI_RESET}")
+                            else:
+                                print(summary_line)
 
-                rewards_t = torch.tensor(rewards, dtype=torch.float32)
-                advantages = torch.zeros(T, dtype=torch.float32)
+                            log["destroy"].append(step_info["destroy_name"])
+                            log["repair"].append(step_info["repair_name"])
+                            log["severity"].append(step_info["severity"])
+                            log["temperature"].append(step_info["temperature"])
+                            log["reward"].append(reward)
+                            log["current_objective"].append(self.current_objective)
+                            log["best_objective"].append(self.best_objective)
+                            log["stagnation"].append(self.stagnation)
 
-                gae = 0.0
-                for t in reversed(range(T)):
-                    next_value = last_value if t == T - 1 else values_t[t + 1].item()
-                    delta = rewards_t[t].item() + self.gamma * next_value - values_t[t].item()
-                    gae = delta + self.gamma * self.gae_lambda * gae
-                    advantages[t] = gae
+                            states_list.append(state)
+                            actions_discrete_list.append([a_d, a_r, a_sev, a_temp])
+                            rewards.append(reward)
+                            log_probs.append(log_p)
+                            values.append(value)
 
-                returns = advantages + values_t
+                            state = next_state
+                            global_steps += 1
+                            instance_steps += 1
 
-                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-                returns_normalized = (returns - returns.mean()) / (returns.std() + 1e-8)
+                        episode_return = sum(rewards)
+                        acceptance_rate = accepted_count / max(1, rollout_steps) * 100
 
-                pl, vl, ent = self._ppo_update(
-                    states,
-                    actions_discrete,
-                    old_log_probs,
-                    returns_normalized,
-                    advantages
-                )
+                        log["episode_return"].append(episode_return)
+                        log["accepted_count"].append(accepted_count)
+                        log["cumulative_rewards"].append(cumulative_reward)
 
-                log["policy_loss"].append(pl)
-                log["value_loss"].append(vl)
-                log["entropy"].append(ent)
-                print(
-                    f"epoch={it+1} "
-                    f"episode_return={episode_return:+.3f} "
-                    f"acceptance_rate={acceptance_rate:.1f}% "
-                    f"best_objective={self.best_objective if math.isfinite(self.best_objective) else None} "
-                    f"current_objective={self.current_objective if math.isfinite(self.current_objective) else None} "
-                    f"policy_loss={pl:.6f} value_loss={vl:.6f} entropy={ent:.6f}"
-                )
+                        states = torch.from_numpy(np.array(states_list, dtype=np.float32))
+                        actions_discrete = torch.tensor(actions_discrete_list, dtype=torch.long)
+                        old_log_probs = torch.stack(log_probs).detach()
+                        values = torch.stack(values)
 
-                # Record metrics
-                self.metrics_monitor.record(
-                    epoch=it + 1,
-                    best_objective=self.best_objective,
-                    current_objective=self.current_objective,
-                    episode_return=episode_return,
-                    cumulative_reward=cumulative_reward,
-                    acceptance_rate=acceptance_rate,
-                    policy_loss=pl,
-                    value_loss=vl,
-                    entropy=ent,
-                    stagnation=self.stagnation
-                )
+                        values_t = values.detach().squeeze()
+                        T = len(rewards)
 
-                # Early stopping
-                if self.best_objective <= 0.0:
-                    print(f"solved=True stop_iter={it+1} reason=objective_zero")
-                    break
+                        with torch.no_grad():
+                            _, _, _, _, last_v = self.model(torch.from_numpy(state).float().unsqueeze(0))
+                            last_value = last_v.squeeze().item()
 
-                if self.stagnation >= 20:
-                    print(f"solved=False stop_iter={it+1} reason=stagnation_limit")
-                    break
+                        rewards_t = torch.tensor(rewards, dtype=torch.float32)
+                        advantages = torch.zeros(T, dtype=torch.float32)
+
+                        gae = 0.0
+                        for t in reversed(range(T)):
+                            next_value = last_value if t == T - 1 else values_t[t + 1].item()
+                            delta = rewards_t[t].item() + self.gamma * next_value - values_t[t].item()
+                            gae = delta + self.gamma * self.gae_lambda * gae
+                            advantages[t] = gae
+
+                        returns = advantages + values_t
+                        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+                        returns_normalized = (returns - returns.mean()) / (returns.std() + 1e-8)
+
+                        pl, vl, ent = self._ppo_update(
+                            states,
+                            actions_discrete,
+                            old_log_probs,
+                            returns_normalized,
+                            advantages
+                        )
+
+                        epoch += 1
+                        log["policy_loss"].append(pl)
+                        log["value_loss"].append(vl)
+                        log["entropy"].append(ent)
+                        print(
+                            f"epoch={epoch} "
+                            f"global_steps={global_steps}/{total_steps} "
+                            f"instance_steps={instance_steps}/{per_instance_cap} "
+                            f"episode_return={episode_return:+.3f} "
+                            f"acceptance_rate={acceptance_rate:.1f}% "
+                            f"best_objective={self.best_objective if math.isfinite(self.best_objective) else None} "
+                            f"current_objective={self.current_objective if math.isfinite(self.current_objective) else None} "
+                            f"policy_loss={pl:.6f} value_loss={vl:.6f} entropy={ent:.6f}"
+                        )
+
+                        self.metrics_monitor.record(
+                            epoch=epoch,
+                            best_objective=self.best_objective,
+                            current_objective=self.current_objective,
+                            episode_return=episode_return,
+                            cumulative_reward=cumulative_reward,
+                            acceptance_rate=acceptance_rate,
+                            policy_loss=pl,
+                            value_loss=vl,
+                            entropy=ent,
+                            stagnation=self.stagnation
+                        )
+
+                    if self.best_objective <= 0.0:
+                        print("instance_result=solved reason=objective_zero")
 
         except KeyboardInterrupt:
-            interrupted = True
             print("\n" + "!"*150)
             print("⚠ TRAINING INTERRUPTED BY USER (Ctrl+C)")
             print("Returning best-so-far solution.")
@@ -785,7 +828,7 @@ class drl_alns:
             checkpoint = (
                 Path(checkpoint_path)
                 if checkpoint_path is not None
-                else Path(__file__).resolve().parent / "drl_ppo_checkpoint.pt"
+                else Path(__file__).resolve().parent / "drl_ppo_checkpoint_"+str(self.total_steps)+".pt"
             )
             checkpoint.parent.mkdir(parents=True, exist_ok=True)
             torch.save(
@@ -960,12 +1003,15 @@ def plot_training(log, show: bool = False, output_path: Path | None = None):
 # ============================================================
 if __name__ == "__main__":
     base = Path(__file__).resolve().parent
-    instance_path = base / "Instances1-50" / "Example1.txt"
+    instance_paths = sorted((base / "Instances1-50").glob("Example*.txt"))
+    if not instance_paths:
+        raise FileNotFoundError("no instance files found in Instances1-50")
+    instance_path = instance_paths[0]
     instance, schedule = load_instance_and_schedule(
         file_path=instance_path,
         cyclicity=True
     )
-    print(f"\n=== Solving instance: {instance_path.name} ===")
+    print(f"\n=== Training across {len(instance_paths)} instances ===")
     model_path = base / "rws_instance.mzn"
     repair_ops = {
         "repair_chuffed_fast": _make_repair_operator(model_path, "chuffed", 3),
@@ -988,7 +1034,11 @@ if __name__ == "__main__":
     )
     
     try:
-        final_schedule, log = solver.train(iterations=500)
+        final_schedule, log = solver.train(
+            total_steps=1000,
+            instance_paths=instance_paths,
+            per_instance_cap=250,
+        )
     except KeyboardInterrupt:
         print("Interrupted during training call.")
         final_schedule = solver.schedule

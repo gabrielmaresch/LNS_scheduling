@@ -158,7 +158,7 @@ if __name__ == "__main__":
     if max_iterations <= 0:
         raise ValueError("max iterations must be > 0")
 
-    default_checkpoint = base / "drl_ppo_checkpoint.pt"
+    default_checkpoint = base / "drl_ppo_checkpoint_1000.pt"
     raw_checkpoint = input(f"Checkpoint path [{default_checkpoint}]: ").strip()
     checkpoint_path = default_checkpoint if raw_checkpoint == "" else Path(raw_checkpoint)
 
