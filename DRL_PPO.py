@@ -140,6 +140,8 @@ class drl_alns:
     value_coef: float = 0.1
     max_grad_norm: float = 0.5
     low_conflict_improvement_bonus: float = 3.0
+    near_feasible_solve_bonus: float = 5.0
+    last_violation_bonus: float = 100.0
 
     def __post_init__(self):
         self.lns = rws_lns(
@@ -148,8 +150,8 @@ class drl_alns:
         )
         self.destroy_names = list(self.destroy_operators.keys())
         self.repair_names = list(self.repair_operators.keys())
-        # State vector: 6 features (see Table 1, removed search-budget).
-        self.state_dim = 6
+        # State vector: 7 features (adds objective-distance-to-feasibility).
+        self.state_dim = 7
         # ActorCritic now expects n_severity=10, n_temp=50 by default
         self.model = ActorCritic(
             self.state_dim,
@@ -162,6 +164,10 @@ class drl_alns:
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         if self.low_conflict_improvement_bonus < 0:
             raise ValueError("low_conflict_improvement_bonus must be >= 0")
+        if self.near_feasible_solve_bonus < 0:
+            raise ValueError("near_feasible_solve_bonus must be >= 0")
+        if self.last_violation_bonus < 0:
+            raise ValueError("last_violation_bonus must be >= 0")
         self.best_objective = float("inf")
         self.current_objective = float("inf")
         self.prev_improved = 0
@@ -218,9 +224,9 @@ class drl_alns:
 
     # --------------------------------------------------------
     def _get_state(self):
-        """Return 6-element state vector per Table 1 (search-budget removed):
+        """Return 7-element state vector:
         [best_improved, current_accepted, current_improved, is_current_best,
-         cost_diff_best, stagnation_count]
+         cost_diff_best, stagnation_count, objective_gap_to_zero]
         """
         # best_improved: whether best improved in last step
         best_improved = float(self.prev_best)
@@ -239,6 +245,10 @@ class drl_alns:
             is_current_best = 0.0
             cost_diff_best = (self.current_objective - self.best_objective) / max(1.0, self.best_objective)
         stagnation_count = float(self.stagnation)
+        if not math.isfinite(self.current_objective):
+            objective_gap_to_zero = 1.0
+        else:
+            objective_gap_to_zero = math.log1p(max(0.0, self.current_objective))
 
         return np.array([
             best_improved,
@@ -247,6 +257,7 @@ class drl_alns:
             is_current_best,
             cost_diff_best,
             stagnation_count,
+            objective_gap_to_zero,
         ], dtype=np.float32)
 
     # ========== NEW: TABU & EXPLORATION METHODS ==========
@@ -483,6 +494,10 @@ class drl_alns:
                 reward = -(new_obj - old_obj) / max(1.0, baseline_penalty)  # Reward improvement
             # Extra bonus in low-objective regions.
             reward += self.low_conflict_improvement_bonus / (1.0 + max(0.0, new_obj))
+            if has_old_obj and new_obj < old_obj and old_obj < 5.0:
+                reward += self.near_feasible_solve_bonus * (old_obj - new_obj)
+            if has_old_obj and old_obj > 0.0 and new_obj <= 0.0:
+                reward += self.last_violation_bonus
 
             # Distinguish between (a) improvement but not a new global best (small bonus)
             # and (b) new global best (larger bonus).

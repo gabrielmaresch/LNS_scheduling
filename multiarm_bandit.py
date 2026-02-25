@@ -22,11 +22,11 @@ def _default_score_function(
     early_phase = incumbent_objective > float(late_phase_threshold)
 
     if contender_objective < best_objective:
-        score, accept = 33, True
+        score, accept = 5, True
     elif contender_objective < incumbent_objective:
-        score, accept = 9, True
+        score, accept = 3, True
     elif contender_objective == incumbent_objective:
-        score, accept = 0, early_phase
+        score, accept = int(early_phase), early_phase
     else:
         p = math.exp(
             -(contender_objective - incumbent_objective) / temperature
@@ -658,11 +658,11 @@ if __name__ == "__main__":
 
     destroy_ops: Dict[str, Callable[[rws_lns], list[tuple[int, int]]]] = {
         "destroy_worst_workers_10pct": _make_destroy_worst_workers(0.10),
-        "destroy_worst_workers_20pct": _make_destroy_worst_workers(0.20),
+        "destroy_worst_workers_30pct": _make_destroy_worst_workers(0.30),
         "destroy_random_workers_20pct": _make_destroy_random_workers(0.20),
         "destroy_random_window_20pct": _make_destroy_random_window(0.20),
         "destroy_worst_days_10pct": _make_destroy_worst_days(0.10),
-        "destroy_worst_days_20pct": _make_destroy_worst_days(0.20),
+        "destroy_worst_days_30pct": _make_destroy_worst_days(0.30),
         "destroy_random_days_20pct": _make_destroy_random_days(0.20),
     }
 
