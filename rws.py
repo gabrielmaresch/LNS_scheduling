@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 from dataclasses import dataclass, field
 from pathlib import Path
+import random
 from time import perf_counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
@@ -318,6 +319,108 @@ class RWS:
                     i += 1
 
             return runs
+
+        @staticmethod
+        def _extract_runs_with_days_cyclic(flags: Sequence[bool], cyclic: bool) -> List[List[int]]:
+            """Return runs as day-index lists, optionally merged across cyclic boundary."""
+            runs = RWS.Schedule._extract_runs_with_days(flags)
+            if cyclic and len(runs) > 1 and flags and flags[0] and flags[-1]:
+                runs[0] = runs[-1] + runs[0]
+                runs.pop()
+            return runs
+
+        def _max_feasable_blocked_days(self) -> Dict[int, List[bool]]:
+            """Build per-worker/day blocked flags for streak feasibility checks."""
+            inst = self.instance
+            n_days = inst.num_days
+            blocked: Dict[int, List[bool]] = {
+                worker: [False] * n_days for worker in range(inst.num_workers)
+            }
+            first_day = self.worker_days_until_first_violation()
+            for worker, day1 in first_day.items():
+                if day1 <= n_days:
+                    blocked[worker][day1 - 1] = True
+
+            return blocked
+
+        def max_feasable_streak(
+            self,
+            worker: int,
+            day: int,
+            forward: bool = True,
+            _blocked_days: Optional[Dict[int, List[bool]]] = None,
+            _memo: Optional[Dict[Tuple[int, int, int], int]] = None,
+        ) -> int:
+            """Return streak length in circular flattened (worker, day) order."""
+            inst = self.instance
+            if not (0 <= worker < inst.num_workers):
+                raise ValueError(f"invalid worker {worker}; expected in [0, {inst.num_workers - 1}]")
+            if not (0 <= day < inst.num_days):
+                raise ValueError(f"invalid day {day}; expected in [0, {inst.num_days - 1}]")
+
+            blocked_days = self._max_feasable_blocked_days() if _blocked_days is None else _blocked_days
+            memo = {} if _memo is None else _memo
+            step = 1 if forward else -1
+            key = (worker, day, step)
+            if key in memo:
+                return memo[key]
+
+            if blocked_days[worker][day]:
+                memo[key] = 0
+                return 0
+
+            n_days = inst.num_days
+            total_cells = inst.num_workers * n_days
+            start_idx = worker * n_days + day
+            visited: List[int] = []
+            idx = start_idx
+            while len(visited) < total_cells:
+                w_idx, d_idx = divmod(idx, n_days)
+                if blocked_days[w_idx][d_idx]:
+                    break
+                visited.append(idx)
+                next_idx = (idx + step) % total_cells
+                if next_idx == start_idx:
+                    break
+                idx = next_idx
+
+            if not visited:
+                memo[key] = 0
+                return 0
+
+            if len(visited) == total_cells:
+                for i in range(total_cells):
+                    w_idx, d_idx = divmod(i, n_days)
+                    memo[(w_idx, d_idx, step)] = total_cells
+                return total_cells
+
+            run_len = len(visited)
+            for pos, flat_idx in enumerate(visited):
+                w_idx, d_idx = divmod(flat_idx, n_days)
+                memo[(w_idx, d_idx, step)] = run_len - pos
+            return memo[key]
+
+        def days_shuffle_cyclic(self, shift: Optional[int] = None) -> None:
+            """Cyclically left-shift day assignments in-place."""
+            n_days = self.instance.num_days
+            if n_days <= 1:
+                return
+            used_shift = random.randrange(n_days) if shift is None else int(shift) % n_days
+            if used_shift == 0:
+                return
+            self.assignment[:] = self.assignment[used_shift:] + self.assignment[:used_shift]
+
+        def workers_shuffle_cyclic(self, shift: Optional[int] = None) -> None:
+            """Cyclically left-shift worker assignments in-place."""
+            n_workers = self.instance.num_workers
+            if n_workers <= 1:
+                return
+            used_shift = random.randrange(n_workers) if shift is None else int(shift) % n_workers
+            if used_shift == 0:
+                return
+            for day in range(self.instance.num_days):
+                row = self.assignment[day]
+                row[:] = row[used_shift:] + row[:used_shift]
 
         # Display the parameters and schedule nicely
         

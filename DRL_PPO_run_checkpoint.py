@@ -8,6 +8,7 @@ from typing import Callable, Dict
 import torch
 
 from DRL_PPO import (
+    _make_destroy_maxsalvage,
     _make_destroy_random_days,
     _make_destroy_random_window,
     _make_destroy_random_workers,
@@ -36,6 +37,7 @@ def _build_destroy_library() -> Dict[str, Callable[[rws_lns, float], list[tuple[
         "destroy_worst_days": _make_destroy_worst_days(),
         "destroy_random_days": _make_destroy_random_days(),
         "destroy_random_window": _make_destroy_random_window(),
+        "destroy_maxsalvage_window": _make_destroy_maxsalvage(),
     }
 
 

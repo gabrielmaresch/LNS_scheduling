@@ -53,14 +53,16 @@ class MBandit:
     
     ###### Parameters for weight updates
     iterations_till_weight_update: int = 15
-    reaction_factor: float = 0.1
-    beta_softmax: float = 0.2
+    reaction_factor: float = 0.2
+    beta_softmax: float = 0.8
     equal_move_allowed_freezeout: int = 5
     
     ##### Simulated annealing for accepting subpar solutions
     annealing_temperature: float = 5
     min_annealing_temperature: float = 0.7
     time_decay_annealing: float = 0.98
+    reshuffle_before_exploration: bool = True
+    reshuffle_only_in_early_phase: bool = False
 
     global_timeout_seconds: float = 300.0
     model_path: str | Path | None = None
@@ -129,6 +131,7 @@ class MBandit:
                     lambda lns: lns.destroy_day(random.randrange(lns.instance.num_days))
                 ),
                 "destroy_random_window_20pct": _make_destroy_random_window(0.20),
+                "destroy_maxsalvage_streak_holes_0pct": _make_destroy_maxsalvage_streak_with_holes(0.0),
             }
 
         if not self.repair_operators:
@@ -200,10 +203,11 @@ class MBandit:
         use_exploration: bool,
     ) -> tuple[set[int], set[int]]:
         """Extract targeted IDs for tabu checks from the current destroy move."""
-        if use_exploration:
+        if use_exploration or "window" in destroy_name:
             workers = set(getattr(lns, "_last_destroy_selected_workers", []))
             days = set(getattr(lns, "_last_destroy_selected_days", []))
-            return workers, days
+            if workers or days:
+                return workers, days
         if "worker" in destroy_name:
             return {worker for _, worker in destroyed_pairs}, set()
         if "day" in destroy_name:
@@ -324,6 +328,23 @@ class MBandit:
         incumbent_objective = self.objective_current_solution
 
         use_exploration = self.stagnation_rounds >= self.exploration_after_stagnation
+        early_phase = incumbent_objective > float(self.equal_move_allowed_freezeout)
+        shuffle_suffix = ""
+        reshuffle_allowed = (
+            self.reshuffle_before_exploration
+            and (early_phase or not self.reshuffle_only_in_early_phase)
+        )
+        if use_exploration and reshuffle_allowed:
+            day_ok = self.instance.num_days > 1
+            worker_ok = self.instance.num_workers > 1
+            if day_ok and (not worker_ok or random.random() < 0.5):
+                shift = random.randrange(1, self.instance.num_days)
+                self.schedule.days_shuffle_cyclic(shift=shift)
+                shuffle_suffix = f" shuffle=days_left_{shift}"
+            elif worker_ok:
+                shift = random.randrange(1, self.instance.num_workers)
+                self.schedule.workers_shuffle_cyclic(shift=shift)
+                shuffle_suffix = f" shuffle=workers_left_{shift}"
         repair_name, repair_op = (
             ("repair_exploration", self.repair_exploration_operator)
             if use_exploration
@@ -349,7 +370,24 @@ class MBandit:
         )
         destroyed_workers = sorted(destroyed_workers_set)
         destroyed_days = sorted(destroyed_days_set)
-        if use_exploration or "window" in destroy_name:
+        if "maxsalvage" in destroy_name:
+            keep_pairs = list(getattr(lns, "_last_destroy_selected_pairs", []))
+            hole_count = int(getattr(lns, "_last_destroy_holes_count", 0))
+            if keep_pairs:
+                start_day, start_worker = keep_pairs[0]
+                end_day, end_worker = keep_pairs[-1]
+                keep_text = (
+                    f"len={len(keep_pairs)} "
+                    f"start=(w{start_worker},d{start_day}) "
+                    f"end=(w{end_worker},d{end_day})"
+                )
+            else:
+                keep_text = "len=0"
+            destroyed_display = (
+                f"salvage streak with holes {keep_text}; holes={hole_count}; "
+                f"destroyed_outside={len(destroy_result)}"
+            )
+        elif use_exploration or "window" in destroy_name:
             destroyed_display = f"destroyed window: {destroyed_workers} x {destroyed_days}"
         elif "worker" in destroy_name:
             destroyed_display = f"destroyed workers: {destroyed_workers}"
@@ -357,6 +395,7 @@ class MBandit:
             destroyed_display = f"destroyed days: {destroyed_days}"
         else:
             destroyed_display = f"destroyed pairs: {len(destroy_result)}"
+        destroyed_display += shuffle_suffix
         repair_failed = False
         repair_error: Optional[str] = None
         try:
@@ -540,7 +579,6 @@ def _smallest_cover_interval(ids: list[int], size: int, cyclic: bool) -> list[in
     return interval
 
 
-
 ####### Library of different destroy-operators
 
 def _make_destroy_worst_workers(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
@@ -610,6 +648,84 @@ def _make_destroy_random_window(fraction: float) -> Callable[[rws_lns], list[tup
 
     return _op
 
+
+def _make_destroy_maxsalvage_streak_with_holes(
+    hole_fraction: float = 0.0,
+) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    """Destroy outside best flattened streak and additionally free a fraction inside it."""
+    if hole_fraction < 0.0 or hole_fraction > 1.0:
+        raise ValueError("hole_fraction must be in [0, 1]")
+
+    def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        schedule = lns.contender if lns.contender is not None else lns.incumbent
+        n_workers = lns.instance.num_workers
+        n_days = lns.instance.num_days
+        total_cells = n_workers * n_days
+
+        # NOTE: This is intentionally simple and called rarely; there is room for
+        # performance improvements by caching and incremental updates.
+        blocked_days = schedule._max_feasable_blocked_days()
+        memo: dict[tuple[int, int, int], int] = {}
+        best_worker = 0
+        best_day = 0
+        best_backward = 1
+        best_len = 0
+        for worker in range(n_workers):
+            for day in range(n_days):
+                forward_len = schedule.max_feasable_streak(
+                    worker=worker,
+                    day=day,
+                    forward=True,
+                    _blocked_days=blocked_days,
+                    _memo=memo,
+                )
+                if forward_len == 0:
+                    continue
+                backward_len = schedule.max_feasable_streak(
+                    worker=worker,
+                    day=day,
+                    forward=False,
+                    _blocked_days=blocked_days,
+                    _memo=memo,
+                )
+                total_len = min(total_cells, forward_len + backward_len - 1)
+                if total_len > best_len:
+                    best_worker = worker
+                    best_day = day
+                    best_backward = backward_len
+                    best_len = total_len
+
+        start_idx = (best_worker * n_days + best_day - best_backward + 1) % total_cells
+        keep_pairs = []
+        for idx in range(start_idx, start_idx + max(1, best_len)):
+            worker_idx, day_idx = divmod(idx % total_cells, n_days)
+            keep_pairs.append((day_idx, worker_idx))
+        keep_pairs_set = set(keep_pairs)
+        hole_candidates = [key for key in keep_pairs if key in lns.fixed_vars]
+        hole_count = _ceil_fraction_count(len(hole_candidates), hole_fraction)
+        hole_pairs = set(random.sample(hole_candidates, hole_count)) if hole_count > 0 else set()
+        lns._last_destroy_selected_workers = sorted({worker for _, worker in keep_pairs})
+        lns._last_destroy_selected_days = sorted({day for day, _ in keep_pairs})
+        lns._last_destroy_selected_pairs = keep_pairs
+        lns._last_destroy_holes_count = len(hole_pairs)
+
+        freed: list[tuple[int, int]] = []
+        for key in list(lns.fixed_vars):
+            if key not in keep_pairs_set or key in hole_pairs:
+                freed.append(key)
+                del lns.fixed_vars[key]
+        return freed
+
+    return _op
+
+
+def _make_destroy_maxsalvage(
+    hole_fraction: float = 0.0,
+) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    """Backward-compatible alias."""
+    return _make_destroy_maxsalvage_streak_with_holes(hole_fraction)
+
+
 def _make_destroy_random_workers(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
     """Build a destroy op that frees a random subset of workers."""
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
@@ -661,6 +777,8 @@ if __name__ == "__main__":
         "destroy_worst_workers_30pct": _make_destroy_worst_workers(0.30),
         "destroy_random_workers_20pct": _make_destroy_random_workers(0.20),
         "destroy_random_window_20pct": _make_destroy_random_window(0.20),
+        "destroy_maxsalvage_streak_holes_0pct": _make_destroy_maxsalvage_streak_with_holes(0.0),
+        "destroy_maxsalvage_streak_holes_20pct": _make_destroy_maxsalvage_streak_with_holes(0.20),
         "destroy_worst_days_10pct": _make_destroy_worst_days(0.10),
         "destroy_worst_days_30pct": _make_destroy_worst_days(0.30),
         "destroy_random_days_20pct": _make_destroy_random_days(0.20),

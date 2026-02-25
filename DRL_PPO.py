@@ -13,6 +13,7 @@ from time import perf_counter
 from rws import RWS, rws_lns
 from rws_instance_loader import load_instance_and_schedule
 from multiarm_bandit import (
+    _make_destroy_maxsalvage as _mab_make_destroy_maxsalvage,
     _make_destroy_random_days as _mab_make_destroy_random_days,
     _make_destroy_random_window as _mab_make_destroy_random_window,
     _make_destroy_random_workers as _mab_make_destroy_random_workers,
@@ -892,6 +893,9 @@ _make_destroy_random_days = _wrap_fraction_destroy(_mab_make_destroy_random_days
 _make_destroy_random_window = _wrap_fraction_destroy(_mab_make_destroy_random_window)
 _make_destroy_worst_workers = _wrap_fraction_destroy(_mab_make_destroy_worst_workers)
 _make_destroy_worst_days = _wrap_fraction_destroy(_mab_make_destroy_worst_days)
+def _make_destroy_maxsalvage():
+    op = _mab_make_destroy_maxsalvage()
+    return lambda lns, severity: op(lns)
 
 def _smooth(x, k=30):
     if len(x) < k:
@@ -1040,6 +1044,7 @@ if __name__ == "__main__":
         "destroy_worst_days": _make_destroy_worst_days(),
         "destroy_random_days": _make_destroy_random_days(),
         "destroy_random_window": _make_destroy_random_window(),
+        "destroy_maxsalvage_window": _make_destroy_maxsalvage(),
     }
     solver = drl_alns(
         instance=instance,
