@@ -17,8 +17,11 @@ def _default_score_function(
     contender_objective: float,
     temperature: float,
     late_phase_threshold: int = 5,
+    noop: bool = False,
 ) -> tuple[int, bool]:
     """Return `(score, accepted)` using best/current/contender objective values and SA."""
+    if noop:
+        return -2, False
     early_phase = incumbent_objective > float(late_phase_threshold)
 
     if contender_objective < best_objective:
@@ -61,7 +64,7 @@ class MBandit:
     min_annealing_temperature: float = 0.7
     time_decay_annealing: float = 0.98
     binomial_p: float = 0.2
-    reshuffle_before_exploration: bool = True
+    reshuffle_before_exploration: bool = False
     reshuffle_only_in_early_phase: bool = False
 
     global_timeout_seconds: float = 300.0
@@ -70,14 +73,14 @@ class MBandit:
    
     objective_best_solution: float = field(init=False)
     objective_current_solution: float = field(init=False)
-    score_function: Callable[[float, float, float, float, int], tuple[int, bool]] = _default_score_function
+    score_function: Callable[..., tuple[int, bool]] = _default_score_function
     
     destroy_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
     repair_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
     
     ######## Exploration
     exploration_after_stagnation: int = 10
-    number_of_consecutive_explorations: int = 3
+    number_of_consecutive_explorations: int = 5
     destroy_exploration_operator: Callable[[rws_lns], list[tuple[int, int]]] = field(init=False, repr=False)
     solver_name: str = "chuffed"
     exploratory_timeout_seconds: float = 100
@@ -266,6 +269,28 @@ class MBandit:
             )
 
             destroy_result = destroy_op(lns)
+            if not destroy_result:
+                if not use_exploration:
+                    destroy_key = self._operator_key("destroy", destroy_name)
+                    try:
+                        noop_score, _ = self.score_function(
+                            self.objective_best_solution,
+                            self.objective_current_solution,
+                            self.objective_current_solution,
+                            self.annealing_temperature,
+                            self.equal_move_allowed_freezeout,
+                            noop=True,
+                        )
+                    except TypeError:
+                        noop_score = -2
+                    self.operator_score_sums[destroy_key] = (
+                        self.operator_score_sums.get(destroy_key, 0.0) + float(noop_score)
+                    )
+                    self.operator_usage_counts[destroy_key] = (
+                        self.operator_usage_counts.get(destroy_key, 0) + 1
+                    )
+                last_name = destroy_name
+                continue
             workers, days = self._destroyed_id_sets(
                 destroy_name=destroy_name,
                 destroyed_pairs=destroy_result,
@@ -282,6 +307,17 @@ class MBandit:
             last_days = days
 
         # Fallback: keep the last attempt if no non-matching destroy could be found.
+        if not last_result:
+            lns._initialize_fixed_vars(self.schedule)
+            day = random.randrange(self.instance.num_days)
+            worker = random.randrange(self.instance.num_workers)
+            key = (day, worker)
+            if key in lns.fixed_vars:
+                del lns.fixed_vars[key]
+            last_name = "destroy_forced_single"
+            last_result = [key]
+            last_workers = {worker}
+            last_days = {day}
         self._record_destroy_signature(last_workers, last_days)
         return last_name, last_result, last_workers, last_days
 
@@ -1011,6 +1047,8 @@ if __name__ == "__main__":
     log_lines: list[str] = []
     ANSI_GREEN = "\033[32m"
     ANSI_PURPLE = "\033[35m"
+    ANSI_LIGHT_GREEN = "\033[92m"
+    ANSI_LIGHT_RED = "\033[91m"
     ANSI_RESET = "\033[0m"
 
     while True:
@@ -1073,7 +1111,12 @@ if __name__ == "__main__":
                 line = (
                     f"    {name:<28}\t{change['before']:>5.2f}\t{change['after']:>5.2f}"
                 )
-                print(line)
+                if change["after"] > change["before"]:
+                    print(f"{ANSI_LIGHT_GREEN}{line}{ANSI_RESET}")
+                elif change["after"] < change["before"]:
+                    print(f"{ANSI_LIGHT_RED}{line}{ANSI_RESET}")
+                else:
+                    print(line)
                 log_lines.append(line)
 
             print("  weight update (repair):")
@@ -1084,7 +1127,12 @@ if __name__ == "__main__":
                 line = (
                     f"    {name:<28}\t{change['before']:>5.2f}\t{change['after']:>5.2f}"
                 )
-                print(line)
+                if change["after"] > change["before"]:
+                    print(f"{ANSI_LIGHT_GREEN}{line}{ANSI_RESET}")
+                elif change["after"] < change["before"]:
+                    print(f"{ANSI_LIGHT_RED}{line}{ANSI_RESET}")
+                else:
+                    print(line)
                 log_lines.append(line)
         if mab.objective_current_solution <= 0.0:
             solved = True
