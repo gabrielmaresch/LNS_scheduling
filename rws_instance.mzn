@@ -3,7 +3,7 @@
 int: d = 7; %number of days to be scheduled
 set of int: days = 1..d;
 
-int: n = 9; %number of workers
+int: n = 8; %number of workers
 set of int: workers = 1..n;
 
 int: s = 3; %number of shifts
@@ -11,22 +11,22 @@ set of int: shifts = 1..s; %1: day, 2: afternoon, 3: night, 0: off
 int: horizon = n * d; % flattened cyclic schedule length
 
 
-array[0..s+1, 1..2] of int: max_min_lengths = array2d(0..4, 1..2, [2, 4, 4, 7, 4, 7, 4, 7, 4, 7]);
+array[0..s+1, 1..2] of int: max_min_lengths = array2d(0..4, 1..2, [1, 3, 1, 4, 1, 4, 1, 3, 2, 6]);
 % min max for free, day, afternoon, night total
 
-int: min_rest = 2;
-int: max_rest = 4;
+int: min_rest = 1;
+int: max_rest = 3;
 
-int: min_work = 4;
-int: max_work = 7;
+int: min_work = 2;
+int: max_work = 6;
 bool: cyclic = true;
 
-int: num_forbidden_sequences = 3;
+int: num_forbidden_sequences = 1;
 % Row width is fixed at 3 (max supported forbidden-sequence length).
 % The first index selects the sequence; the second index selects its position in the tuple.
-array[1..num_forbidden_sequences] of int: forbidden_sequence_lengths = array1d(1..3, [2, 2, 2]);
+array[1..num_forbidden_sequences] of int: forbidden_sequence_lengths = array1d(1..1, [2]);
 % For length-2 sequences, the 3rd entry is padding (0) and ignored via forbidden_sequence_lengths.
-array[1..num_forbidden_sequences, 1..3] of int: forbidden_sequences = array2d(1..3, 1..3, [3, 1, 0, 3, 2, 0, 2, 1, 0]);
+array[1..num_forbidden_sequences, 1..3] of int: forbidden_sequences = array2d(1..1, 1..3, [3, 1, 0]);
 
 
 function int: next_day(int: day) = if day = d then 1 else day + 1 endif;
@@ -40,7 +40,7 @@ function int: prev_worker(int: worker) = if worker = 1 then n else worker - 1 en
 
 %required workers for shift s' on day d'
 
-array[1..d, 1..s] of int: required_workers = array2d(1..7, 1..3, [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]);
+array[1..d, 1..s] of int: required_workers = array2d(1..7, 1..3, [3, 3, 1, 3, 2, 2, 2, 3, 2, 3, 2, 1, 2, 3, 2, 3, 2, 2, 2, 3, 1]);
 
 
 
@@ -89,21 +89,16 @@ array[1..n] of var 0..horizon: slack_work_min;
 array[1..n] of var 0..horizon: slack_work_max;
 array[1..n] of var 0..horizon: slack_rest_min;
 array[1..n] of var 0..horizon: slack_rest_max;
-array[1..n] of var 0..1: slack_offday_min;
+% array[1..n] of var 0..1: slack_offday_min;
 array[1..n, 1..s] of var 0..horizon: slack_shifts_min;
 array[1..n, 1..s] of var 0..horizon: slack_shifts_max;
 array[1..d, 1..s] of var 0..n: slack_required_min;
 array[1..d, 1..s] of var 0..n: slack_required_max;
 var int: slack_forbidden_total;
 constraint slack_forbidden_total >= 0;
-%
 % constraint forall(worker in workers)(
 %   sum(day in days)(bool2int(shift_of[worker, day] = 0)) + slack_offday_min[worker] >= 1
 % );
-
-
-
-
 %%% lenght of consecutive workdays
 constraint
   forall(worker in workers)(
@@ -293,7 +288,8 @@ constraint slack_forbidden_total =
 solve
   :: int_search([shift_of[w, day] | w in workers, day in days], first_fail, indomain_min, complete)
   minimize
-  sum(worker in workers)(slack_work_min[worker] + slack_work_max[worker] + slack_rest_min[worker] + slack_rest_max[worker] + slack_offday_min[worker])
+  sum(worker in workers)(slack_work_min[worker] + slack_work_max[worker] + slack_rest_min[worker] + slack_rest_max[worker])
+  % + sum(worker in workers)(slack_offday_min[worker])
   + sum(worker in workers, shift in shifts)(slack_shifts_min[worker, shift] + slack_shifts_max[worker, shift])
   + sum(day in days, shift in shifts)(slack_required_min[day, shift] + slack_required_max[day, shift])
   + slack_forbidden_total;

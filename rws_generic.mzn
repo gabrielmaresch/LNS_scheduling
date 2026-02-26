@@ -89,21 +89,16 @@ array[1..n] of var 0..horizon: slack_work_min;
 array[1..n] of var 0..horizon: slack_work_max;
 array[1..n] of var 0..horizon: slack_rest_min;
 array[1..n] of var 0..horizon: slack_rest_max;
-array[1..n] of var 0..1: slack_offday_min;
+% array[1..n] of var 0..1: slack_offday_min;
 array[1..n, 1..s] of var 0..horizon: slack_shifts_min;
 array[1..n, 1..s] of var 0..horizon: slack_shifts_max;
 array[1..d, 1..s] of var 0..n: slack_required_min;
 array[1..d, 1..s] of var 0..n: slack_required_max;
 var int: slack_forbidden_total;
 constraint slack_forbidden_total >= 0;
-%
 % constraint forall(worker in workers)(
 %   sum(day in days)(bool2int(shift_of[worker, day] = 0)) + slack_offday_min[worker] >= 1
 % );
-
-
-
-
 %%% lenght of consecutive workdays
 constraint
   forall(worker in workers)(
@@ -293,7 +288,8 @@ constraint slack_forbidden_total =
 solve
   :: int_search([shift_of[w, day] | w in workers, day in days], first_fail, indomain_min, complete)
   minimize
-  sum(worker in workers)(slack_work_min[worker] + slack_work_max[worker] + slack_rest_min[worker] + slack_rest_max[worker] + slack_offday_min[worker])
+  sum(worker in workers)(slack_work_min[worker] + slack_work_max[worker] + slack_rest_min[worker] + slack_rest_max[worker])
+  % + sum(worker in workers)(slack_offday_min[worker])
   + sum(worker in workers, shift in shifts)(slack_shifts_min[worker, shift] + slack_shifts_max[worker, shift])
   + sum(day in days, shift in shifts)(slack_required_min[day, shift] + slack_required_max[day, shift])
   + slack_forbidden_total;

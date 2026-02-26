@@ -213,8 +213,8 @@ def _generate_rws_instance_mzn(
             "  minimize\n"
             "  sum(worker in workers)(\n"
             "    slack_work_min[worker] + slack_work_max[worker] +\n"
-            "    slack_rest_min[worker] + slack_rest_max[worker] +\n"
-            "    slack_offday_min[worker]\n"
+            "    slack_rest_min[worker] + slack_rest_max[worker]\n"
+            # "    + slack_offday_min[worker]\n"
             "  )\n"
             "  + sum(day in days, shift in shifts)(slack_required_min[day, shift]);\n"
         )

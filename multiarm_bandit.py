@@ -1005,8 +1005,8 @@ if __name__ == "__main__":
         model_path=model_path,
         destroy_operators=destroy_ops,
         repair_operators=repair_ops,
-        global_timeout_seconds=150,
-        minizinc_timeout_seconds=45
+        global_timeout_seconds=600,
+        minizinc_timeout_seconds=60
 
     )
 
@@ -1025,6 +1025,10 @@ if __name__ == "__main__":
     solved = False
     last_iteration = 0
     log_lines: list[str] = []
+    instance_name = instance_path.stem
+    log_lines.append(f"Loaded instance: {instance_name}")
+    log_lines.append(f"instance={instance_name}")
+    log_lines.append("")
     ANSI_GREEN = "\033[32m"
     ANSI_PURPLE = "\033[35m"
     ANSI_LIGHT_GREEN = "\033[92m"

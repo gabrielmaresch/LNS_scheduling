@@ -146,7 +146,7 @@ class drl_alns:
     max_grad_norm: float = 0.5
     low_conflict_improvement_bonus: float = 3.0
     near_feasible_solve_bonus: float = 5.0
-    last_violation_bonus: float = 100.0
+    last_violation_bonus: float = 25.0
 
     def __post_init__(self):
         self.lns = rws_lns(
@@ -1184,7 +1184,7 @@ if __name__ == "__main__":
         final_schedule, log = solver.train(
             total_steps=1000,
             instance_paths=instance_paths,
-            per_instance_cap=250,
+            per_instance_cap=125,
         )
     except KeyboardInterrupt:
         print("Interrupted during training call.")

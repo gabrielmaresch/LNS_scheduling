@@ -66,10 +66,11 @@ def parse_log(
 
     for raw_line in log_path.read_text(encoding="utf-8").splitlines():
         line = raw_line.rstrip("\n")
+        stripped = line.strip()
 
-        if line.startswith("iter="):
+        if stripped.startswith("iter="):
             section = None
-            fields = dict(ITER_RE.findall(line))
+            fields = dict(ITER_RE.findall(stripped))
             required = {
                 "iter",
                 "elapsed",
@@ -97,25 +98,29 @@ def parse_log(
             current_iter = record.iteration
             continue
 
-        if line.startswith("  weight update (destroy):"):
+        if stripped == "weight update (destroy):":
             section = "destroy"
             continue
-        if line.startswith("  weight update (repair):"):
+        if stripped == "weight update (repair):":
             section = "repair"
             continue
 
-        if section and line.strip().startswith("operator"):
+        if section and stripped.startswith("operator"):
             continue
 
-        if section and line.startswith("    "):
+        if section and stripped:
             if current_iter is None:
                 continue
-            parts = [part.strip() for part in line.split("\t") if part.strip()]
+            # Support both tab-separated and space-aligned columns.
+            parts = stripped.rsplit(maxsplit=2)
             if len(parts) < 3:
                 continue
             operator_name = parts[0]
-            before = float(parts[1])
-            after = float(parts[2])
+            try:
+                before = float(parts[1])
+                after = float(parts[2])
+            except ValueError:
+                continue
             target = destroy_updates if section == "destroy" else repair_updates
             target.setdefault(current_iter, {})[operator_name] = (before, after)
             continue
@@ -142,6 +147,20 @@ def infer_instance_label(log_path: Path) -> str:
             if candidate:
                 return Path(candidate).name
     return "unknown"
+
+
+def _safe_filename_token(text: str) -> str:
+    token = Path(text).stem.strip()
+    token = re.sub(r"[^A-Za-z0-9._-]+", "_", token)
+    return token.strip("._-") or "unknown"
+
+
+def _display_instance_label(instance_label: str, max_len: int = 72) -> str:
+    """Return a compact label for plot titles."""
+    name = Path(instance_label).name
+    if len(name) <= max_len:
+        return name
+    return name[: max_len - 1] + "…"
 
 
 def _build_weight_update_bars(
@@ -209,6 +228,7 @@ def plot_analytics(
     output_path: Path,
     show: bool,
 ) -> None:
+    display_instance_label = _display_instance_label(instance_label)
     iterations = [record.iteration for record in records]
     runtimes = [record.step_runtime for record in records]
     contender_objectives = [record.contender_objective for record in records]
@@ -333,9 +353,7 @@ def plot_analytics(
         handles.extend(h)
         labels.extend(l)
     ax_v.legend(handles, labels, loc="upper right")
-    ax_v.set_title(
-        f"Objective with Runtime and Temperature Overlay | {instance_label}"
-    )
+    ax_v.set_title("Objective with Runtime and Temperature Overlay")
 
     ax_dw = axes[1]
     if destroy_update_iters:
@@ -357,7 +375,13 @@ def plot_analytics(
         ax_dw.set_xlim(-0.5, len(positions) - 0.5)
         ax_dw.set_xticks(positions)
         ax_dw.set_xticklabels([str(it) for it in destroy_update_iters])
-        ax_dw.legend(ncol=2, fontsize=8, loc="upper right")
+        ax_dw.legend(
+            ncol=1,
+            fontsize=8,
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1.0),
+            borderaxespad=0.0,
+        )
         if not _bars_have_variation(destroy_operators, destroy_bars):
             ax_dw.text(
                 0.01,
@@ -403,7 +427,13 @@ def plot_analytics(
         ax_rw.set_xlim(-0.5, len(positions) - 0.5)
         ax_rw.set_xticks(positions)
         ax_rw.set_xticklabels([str(it) for it in repair_update_iters])
-        ax_rw.legend(ncol=2, fontsize=8, loc="upper right")
+        ax_rw.legend(
+            ncol=1,
+            fontsize=8,
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1.0),
+            borderaxespad=0.0,
+        )
         if not _bars_have_variation(repair_operators, repair_bars):
             ax_rw.text(
                 0.01,
@@ -429,6 +459,7 @@ def plot_analytics(
     ax_rw.grid(alpha=0.25)
     ax_rw.set_title("Repair Weights per Update (stacked)")
 
+    fig.suptitle(f"Instance: {display_instance_label}", x=0.01, ha="left")
     fig.savefig(output_path, dpi=150)
     if show:
         plt.show()
@@ -445,7 +476,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--log",
         type=Path,
-        default=Path(__file__).resolve().parent / "multiarm_bandit.log",
+        default=Path(__file__).resolve().parent / "logs" / "multiarm_bandit.log",
         help="Path to multiarm bandit log file.",
     )
     parser.add_argument(
@@ -501,7 +532,9 @@ def main() -> None:
 
     records, destroy_updates, repair_updates = parse_log(args.log)
     instance_label = Path(args.instance).name if args.instance else infer_instance_label(args.log)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
+    instance_token = _safe_filename_token(instance_label)
+    out_path = args.out.with_name(f"{args.out.stem}_{instance_token}{args.out.suffix}")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     plot_analytics(
         records=records,
         destroy_updates=destroy_updates,
@@ -510,10 +543,10 @@ def main() -> None:
         decay=args.temp_decay,
         min_temp=args.min_temp,
         instance_label=instance_label,
-        output_path=args.out,
+        output_path=out_path,
         show=args.show,
     )
-    print(f"Wrote analytics plot: {args.out}")
+    print(f"Wrote analytics plot: {out_path}")
 
 
 if __name__ == "__main__":

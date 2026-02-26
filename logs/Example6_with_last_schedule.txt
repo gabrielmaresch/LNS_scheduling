@@ -36,22 +36,22 @@ N - A
 N - D
 
 # --- LNS APPENDIX ---
-final_objective=1.0
-runtime_seconds=496.675 iterations=41 solved=False
+final_objective=0.0
+runtime_seconds=47.570 iterations=15 solved=True
 
 mbandit_parameters:
 iterations_till_weight_update=10
 reaction_factor=0.2
 beta_softmax=1
 equal_move_allowed_freezeout=5
-annealing_temperature=2.1839319793596594
+annealing_temperature=3.6928455132270197
 min_annealing_temperature=0.7
 time_decay_annealing=0.98
 binomial_p=0.2
 reshuffle_before_exploration=False
 reshuffle_only_in_early_phase=False
-global_timeout_seconds=300.0
-minizinc_timeout_seconds=50
+global_timeout_seconds=600
+minizinc_timeout_seconds=60
 exploration_after_stagnation=10
 number_of_consecutive_explorations=5
 exploratory_timeout_seconds=100
@@ -60,16 +60,13 @@ destroy_tabu_length=8
 
 last_schedule_shift_ids:
 day        0   1   2   3   4   5   6
-worker  0:   1   1   1   1   1   1   0
-worker  1:   0   0   0   1   1   1   0
-worker  2:   2   2   2   2   2   2   0
-worker  3:   2   2   2   3   3   0   0
-worker  4:   1   1   1   2   2   2   3
-worker  5:   3   3   3   0   0   0   3
-worker  6:   3   3   3   3   3   0   0
+worker  0:   0   0   0   1   1   1   3
+worker  1:   3   3   3   0   0   0   3
+worker  2:   3   3   3   3   3   0   0
+worker  3:   1   1   1   1   1   1   0
+worker  4:   2   2   2   2   2   2   0
+worker  5:   2   2   2   3   3   0   0
+worker  6:   1   1   1   2   2   2   0
 
 violation_diagnostic_from_find_first_violation_after:
-first_from_w0_d0: w1, d3, type=min_consecutive_work
-- w1, d3, type=min_consecutive_work
-- w1, d4, type=min_consecutive_work
-- w1, d5, type=min_consecutive_work
+none
