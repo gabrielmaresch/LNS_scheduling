@@ -1,0 +1,101 @@
+#Length of the schedule
+7
+
+#Number of Employees
+11
+
+##Number of Shifts
+3
+
+# Temporal Requirements Matrix
+2 2 2 2 2 2 2 
+2 2 2 2 2 2 2 
+4 4 4 4 4 4 4 
+
+#ShiftName, Start, Length, Name, MinlengthOfBlocks, MaxLengthOfBlocks
+D  360 480 2 5
+A  840 480 3 4
+N  1320 480 2 4
+
+# Minimum and maximum length of days-off blocks
+1 3
+
+# Minimum and maximum length of work blocks
+4 5
+
+# Number of not allowed shift sequences: NrSequencesOfLength2, NrSequencesOfLength3:
+3 4
+
+# Not allowed shift sequences
+N D
+N A
+A D
+N - N
+A - D
+N - A
+N - D
+
+# --- LNS APPENDIX ---
+final_objective=8.0
+runtime_seconds=300.297 iterations=51 solved=False
+
+mbandit_parameters:
+iterations_till_weight_update=10
+reaction_factor=0.2
+beta_softmax=1
+equal_move_allowed_freezeout=5
+annealing_temperature=1.784431432426873
+min_annealing_temperature=0.7
+time_decay_annealing=0.98
+binomial_p=0.2
+reshuffle_before_exploration=False
+reshuffle_only_in_early_phase=False
+global_timeout_seconds=300.0
+minizinc_timeout_seconds=50
+exploration_after_stagnation=10
+number_of_consecutive_explorations=5
+exploratory_timeout_seconds=100
+solver_name=chuffed
+destroy_tabu_length=8
+
+last_schedule_shift_ids:
+day        0   1   2   3   4   5   6
+worker  0:   0   0   0   0   1   1   2
+worker  1:   2   2   0   0   0   3   3
+worker  2:   3   1   1   0   0   0   1
+worker  3:   1   1   3   3   0   0   0
+worker  4:   3   3   3   3   3   0   0
+worker  5:   2   2   2   2   3   3   0
+worker  6:   0   0   2   2   2   2   0
+worker  7:   3   3   3   3   2   2   2
+worker  8:   0   0   0   1   1   1   1
+worker  9:   1   0   3   3   3   3   0
+worker 10:   0   0   1   1   3   3   3
+
+violation_diagnostic_from_find_first_violation_after:
+first_from_w0_d0: w0, d0, type=max_consecutive_off
+- w0, d0, type=max_consecutive_off
+- w0, d1, type=max_consecutive_off
+- w0, d2, type=max_consecutive_off
+- w0, d3, type=max_consecutive_off
+- w2, d0, type=forbidden_sequence_2
+- w2, d1, type=forbidden_sequence_2
+- w3, d6, type=shift_req_under_N_by_2
+- w4, d0, type=max_consecutive_shift_3
+- w4, d1, type=max_consecutive_shift_3
+- w4, d2, type=max_consecutive_shift_3
+- w4, d3, type=max_consecutive_shift_3
+- w4, d4, type=max_consecutive_shift_3
+- w5, d0, type=max_consecutive_work
+- w5, d1, type=max_consecutive_work
+- w5, d2, type=max_consecutive_work
+- w5, d3, type=max_consecutive_work
+- w5, d4, type=max_consecutive_work
+- w5, d5, type=max_consecutive_work
+- w7, d0, type=max_consecutive_work
+- w7, d1, type=max_consecutive_work
+- w7, d2, type=max_consecutive_work
+- w7, d3, type=forbidden_sequence_2
+- w7, d4, type=forbidden_sequence_2
+- w7, d5, type=max_consecutive_work
+- w7, d6, type=max_consecutive_work

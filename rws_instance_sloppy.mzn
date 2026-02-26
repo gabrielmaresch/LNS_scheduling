@@ -123,8 +123,12 @@ array[1..n, 1..d] of var 0..d: work_length_cyclic;
 
 constraint forall(worker in workers)(
   work_length_cyclic[worker, 1] =
-    if (shift_of[worker, 1] > 0 /\ prev_slot_shift(worker, 1) > 0) then
-      min(d, work_length_until[prev_worker(worker), d] + 1)
+    if shift_of[worker, 1] > 0 then
+      if prev_slot_shift(worker, 1) > 0 then
+        min(d, work_length_until[prev_worker(worker), d] + 1)
+      else
+        1
+      endif
     else
       0
     endif
@@ -161,8 +165,12 @@ array[1..n, 1..d, 0..s] of var 0..d: shift_length_cyclic;
 constraint
   forall(worker in workers, shift in 0..s)(
     shift_length_cyclic[worker,1,shift] =
-      if (shift_of[worker,1] = shift /\ prev_slot_shift(worker,1) = shift) then
-        min(d, shift_length_until[prev_worker(worker),d,shift] + 1)
+      if shift_of[worker,1] = shift then
+        if prev_slot_shift(worker,1) = shift then
+          min(d, shift_length_until[prev_worker(worker),d,shift] + 1)
+        else
+          1
+        endif
       else
         0
       endif

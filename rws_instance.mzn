@@ -3,29 +3,29 @@
 int: d = 7; %number of days to be scheduled
 set of int: days = 1..d;
 
-int: n = 9; %number of workers
+int: n = 7; %number of workers
 set of int: workers = 1..n;
 
 int: s = 3; %number of shifts
 set of int: shifts = 1..s; %1: day, 2: afternoon, 3: night, 0: off
 
 
-array[0..s+1, 1..2] of int: max_min_lengths = array2d(0..4, 1..2, [2, 4, 4, 7, 4, 7, 4, 7, 4, 7]);
+array[0..s+1, 1..2] of int: max_min_lengths = array2d(0..4, 1..2, [1, 4, 2, 6, 2, 6, 2, 6, 4, 7]);
 % min max for free, day, afternoon, night total
 
-int: min_rest = 2;
+int: min_rest = 1;
 int: max_rest = 4;
 
 int: min_work = 4;
 int: max_work = 7;
 bool: cyclic = true;
 
-int: num_forbidden_sequences = 3;
+int: num_forbidden_sequences = 7;
 % Row width is fixed at 3 (max supported forbidden-sequence length).
 % The first index selects the sequence; the second index selects its position in the tuple.
-array[1..num_forbidden_sequences] of int: forbidden_sequence_lengths = array1d(1..3, [2, 2, 2]);
+array[1..num_forbidden_sequences] of int: forbidden_sequence_lengths = array1d(1..7, [2, 2, 2, 3, 3, 3, 3]);
 % For length-2 sequences, the 3rd entry is padding (0) and ignored via forbidden_sequence_lengths.
-array[1..num_forbidden_sequences, 1..3] of int: forbidden_sequences = array2d(1..3, 1..3, [3, 1, 0, 3, 2, 0, 2, 1, 0]);
+array[1..num_forbidden_sequences, 1..3] of int: forbidden_sequences = array2d(1..7, 1..3, [3, 1, 0, 3, 2, 0, 2, 1, 0, 3, 0, 3, 2, 0, 1, 3, 0, 2, 3, 0, 1]);
 
 
 function int: next_day(int: day) = if day = d then 1 else day + 1 endif;
@@ -39,7 +39,7 @@ function int: prev_worker(int: worker) = if worker = 1 then n else worker - 1 en
 
 %required workers for shift s' on day d'
 
-array[1..d, 1..s] of int: required_workers = array2d(1..7, 1..3, [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]);
+array[1..d, 1..s] of int: required_workers = array2d(1..7, 1..3, [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 2]);
 
 
 
@@ -123,8 +123,12 @@ array[1..n, 1..d] of var 0..d: work_length_cyclic;
 
 constraint forall(worker in workers)(
   work_length_cyclic[worker, 1] =
-    if (shift_of[worker, 1] > 0 /\ prev_slot_shift(worker, 1) > 0) then
-      min(d, work_length_until[prev_worker(worker), d] + 1)
+    if shift_of[worker, 1] > 0 then
+      if prev_slot_shift(worker, 1) > 0 then
+        min(d, work_length_until[prev_worker(worker), d] + 1)
+      else
+        1
+      endif
     else
       0
     endif
@@ -161,8 +165,12 @@ array[1..n, 1..d, 0..s] of var 0..d: shift_length_cyclic;
 constraint
   forall(worker in workers, shift in 0..s)(
     shift_length_cyclic[worker,1,shift] =
-      if (shift_of[worker,1] = shift /\ prev_slot_shift(worker,1) = shift) then
-        min(d, shift_length_until[prev_worker(worker),d,shift] + 1)
+      if shift_of[worker,1] = shift then
+        if prev_slot_shift(worker,1) = shift then
+          min(d, shift_length_until[prev_worker(worker),d,shift] + 1)
+        else
+          1
+        endif
       else
         0
       endif

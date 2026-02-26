@@ -1,6 +1,7 @@
 from __future__ import annotations
 import random
 import math
+import json
 from dataclasses import dataclass
 from typing import Dict, Callable
 from pathlib import Path
@@ -912,11 +913,30 @@ def _make_destroy_streak():
         )(lns)
     return _op
 
+
+def _make_destroy_worker():
+    """Destroy one random worker (severity-agnostic)."""
+    def _op(lns: rws_lns, _severity: float) -> list[tuple[int, int]]:
+        worker = random.randrange(lns.instance.num_workers)
+        return lns.destroy_worker(worker)
+    return _op
+
+
+def _make_destroy_day():
+    """Destroy one random day (severity-agnostic)."""
+    def _op(lns: rws_lns, _severity: float) -> list[tuple[int, int]]:
+        day = random.randrange(lns.instance.num_days)
+        return lns.destroy_day(day)
+    return _op
+
+
 def _build_destroy_library(
     instance: RWS.Instance,
     include_legacy: bool = False,
 ) -> Dict[str, Callable[[rws_lns, float], list[tuple[int, int]]]]:
     ops: Dict[str, Callable[[rws_lns, float], list[tuple[int, int]]]] = {
+        "destroy_worker": _make_destroy_worker(),
+        "destroy_day": _make_destroy_day(),
         "destroy_worst_workers_10pct": _wrap_static_destroy(_mab_make_destroy_worst_workers(0.10)),
         "destroy_worst_workers_30pct": _wrap_static_destroy(_mab_make_destroy_worst_workers(0.30)),
         "destroy_random_workers_20pct": _wrap_static_destroy(_mab_make_destroy_random_workers(0.20)),
@@ -949,6 +969,73 @@ def _smooth(x, k=30):
         return x
     import numpy as np
     return np.convolve(x, np.ones(k)/k, mode="valid")
+
+
+def _json_safe(value):
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    return value
+
+
+def write_training_log(log, output_path: Path) -> None:
+    """Persist training-series data used by DRL plotting."""
+    payload = _json_safe(
+        {
+            "rollout_length": log.get("rollout_length"),
+            "episode_return": log.get("episode_return", []),
+            "best_objective": log.get("best_objective", []),
+            "current_objective": log.get("current_objective", []),
+            "policy_loss": log.get("policy_loss", []),
+            "value_loss": log.get("value_loss", []),
+            "entropy": log.get("entropy", []),
+            "accepted_count": log.get("accepted_count", []),
+            "stagnation": log.get("stagnation", []),
+            "reward": log.get("reward", []),
+            "cumulative_rewards": log.get("cumulative_rewards", []),
+        }
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    print(f"Wrote training logfile: {output_path}")
+
+
+def plot_cumulative_reward(log, show: bool = False, output_path: Path | None = None):
+    """Plot cumulative reward across all training steps."""
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(12, 4.5))
+    rewards = log.get("reward", [])
+    if rewards:
+        cumulative = np.cumsum(np.array(rewards, dtype=np.float64))
+        steps = np.arange(1, len(cumulative) + 1)
+        plt.plot(steps, cumulative, color="tab:blue", linewidth=2.0, label="Cumulative reward")
+        plt.xlabel("Step")
+        plt.ylabel("Cumulative reward")
+        plt.legend()
+    else:
+        plt.text(
+            0.5,
+            0.5,
+            "No reward data available",
+            ha="center",
+            va="center",
+            transform=plt.gca().transAxes,
+        )
+    plt.title("Cumulative Reward Across Training")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_path, dpi=150)
+        print(f"Wrote cumulative reward plot: {output_path}")
+    if show:
+        plt.show()
+    else:
+        plt.close()
 
 def plot_training(log, show: bool = False, output_path: Path | None = None):
     #Plot training metrics: episode return, objective, losses, entropy, acceptance rate.
@@ -1110,3 +1197,5 @@ if __name__ == "__main__":
 
     if log:
         plot_training(log, show=False, output_path=base / "drl-training.png")
+        plot_cumulative_reward(log, show=False, output_path=base / "drl-crwd.png")
+        write_training_log(log, output_path=base / "logs" / "drl-training.log")

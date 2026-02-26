@@ -8,7 +8,9 @@ from typing import Callable, Dict
 import torch
 
 from DRL_PPO import (
+    _make_destroy_day,
     _make_destroy_streak,
+    _make_destroy_worker,
     _make_destroy_random_days,
     _make_destroy_random_window,
     _make_destroy_random_workers,
@@ -32,6 +34,8 @@ def _build_repair_library(model_path: Path) -> Dict[str, Callable[[rws_lns], Non
 
 def _build_destroy_library() -> Dict[str, Callable[[rws_lns, float], list[tuple[int, int]]]]:
     return {
+        "destroy_worker": _make_destroy_worker(),
+        "destroy_day": _make_destroy_day(),
         "destroy_worst_workers": _make_destroy_worst_workers(),
         "destroy_random_workers": _make_destroy_random_workers(),
         "destroy_worst_days": _make_destroy_worst_days(),
