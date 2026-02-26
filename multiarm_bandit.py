@@ -55,8 +55,8 @@ class MBandit:
     
     ###### Parameters for weight updates
     iterations_till_weight_update: int = 10
-    reaction_factor: float = 0.25
-    beta_softmax: float = 1.5
+    reaction_factor: float = 0.2
+    beta_softmax: float = 1
     equal_move_allowed_freezeout: int = 5
     
     ##### Simulated annealing for accepting subpar solutions
@@ -142,12 +142,7 @@ class MBandit:
                 ),
                 "destroy_random_window_20pct": _make_destroy_random_window(0.20),
                 "destroy_forbidden_sequences_30pct": _make_destroy_forbidden_sequences(0.30),
-                "destroy_streak_around_worst_worker_h0pct": _make_destroy_streak_around_worst_worker(
-                    holes_percentage=0.0,
-                    binomial_p=self.binomial_p,
-                ),
-                "destroy_streak_around_worst_worker_h20pct": _make_destroy_streak_around_worst_worker(
-                    holes_percentage=0.20,
+                "destroy_streak_around_worst_worker": _make_destroy_streak_around_worst_worker(
                     binomial_p=self.binomial_p,
                 ),
                 **max_border_ops,
@@ -441,7 +436,6 @@ class MBandit:
         destroyed_days = sorted(destroyed_days_set)
         if "streak" in destroy_name:
             streak_pairs = list(getattr(lns, "_last_destroy_selected_pairs", []))
-            hole_count = int(getattr(lns, "_last_destroy_holes_count", 0))
             if streak_pairs:
                 start_day, start_worker = streak_pairs[0]
                 end_day, end_worker = streak_pairs[-1]
@@ -453,7 +447,7 @@ class MBandit:
             else:
                 streak_text = "len=0"
             destroyed_display = (
-                f"destroyed streak {streak_text}; holes={hole_count}; "
+                f"destroyed streak {streak_text}; "
                 f"destroyed_inside={len(destroy_result)}"
             )
         elif use_exploration or "window" in destroy_name:
@@ -786,11 +780,10 @@ def _make_destroy_streak(
     day: Optional[int],
     forward: int,
     backward: int,
-    holes: int,
 ) -> Callable[[rws_lns], list[tuple[int, int]]]:
     """Destroy variables inside a flattened cyclic streak from a start slot."""
-    if forward < 0 or backward < 0 or holes < 0:
-        raise ValueError("forward/backward/holes must be >= 0")
+    if forward < 0 or backward < 0:
+        raise ValueError("forward/backward must be >= 0")
 
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
         n_workers = lns.instance.num_workers
@@ -809,17 +802,12 @@ def _make_destroy_streak(
             w_idx, d_idx = divmod((first_idx + offset) % total_cells, n_days)
             streak_pairs.append((d_idx, w_idx))
 
-        hole_count = min(holes, len(streak_pairs))
-        hole_pairs = set(random.sample(streak_pairs, hole_count)) if hole_count > 0 else set()
-        destroy_pairs = [key for key in streak_pairs if key not in hole_pairs]
-
         lns._last_destroy_selected_workers = sorted({w for _, w in streak_pairs})
         lns._last_destroy_selected_days = sorted({d for d, _ in streak_pairs})
         lns._last_destroy_selected_pairs = streak_pairs
-        lns._last_destroy_holes_count = hole_count
 
         freed: list[tuple[int, int]] = []
-        for key in destroy_pairs:
+        for key in streak_pairs:
             if key in lns.fixed_vars:
                 freed.append(key)
                 del lns.fixed_vars[key]
@@ -829,12 +817,9 @@ def _make_destroy_streak(
 
 
 def _make_destroy_streak_around_worst_worker(
-    holes_percentage: float,
     binomial_p: float,
 ) -> Callable[[rws_lns], list[tuple[int, int]]]:
-    """Destroy a symmetric streak around the current worst worker with optional holes."""
-    if not (0.0 <= holes_percentage <= 1.0):
-        raise ValueError("holes_percentage must be in [0, 1]")
+    """Destroy a symmetric streak around the current worst worker."""
     if not (0.0 <= binomial_p <= 1.0):
         raise ValueError("binomial_p must be in [0, 1]")
 
@@ -856,14 +841,11 @@ def _make_destroy_streak_around_worst_worker(
         # Cap on flattened ring size N so streak length stays strictly < N.
         max_radius = max(0, (total_cells - 2) // 2)
         radius = _sample_binomial(max_radius, binomial_p)
-        span = 1 + 2 * radius
-        holes = int(round(holes_percentage * span))
         return _make_destroy_streak(
             worker=worst_worker,
             day=center_day,
             forward=radius,
             backward=radius,
-            holes=holes,
         )(lns)
 
     return _op
@@ -994,10 +976,10 @@ if __name__ == "__main__":
 
     model_path = base / "rws_instance.mzn"
     repair_ops: Dict[str, Callable[[rws_lns], None]] = {
-        "repair_chuffed_fast": _make_repair_operator(model_path, "chuffed", 8),
-        "repair_gecode_fast": _make_repair_operator(model_path, "gecode", 8),
-        "repair_chuffed_long": _make_repair_operator(model_path, "chuffed", 24),
-        "repair_gecode_long": _make_repair_operator(model_path, "gecode", 24),
+        "repair_chuffed_fast": _make_repair_operator(model_path, "chuffed", 3),
+        "repair_gecode_fast": _make_repair_operator(model_path, "gecode", 3),
+        "repair_chuffed_long": _make_repair_operator(model_path, "chuffed", 15),
+        "repair_gecode_long": _make_repair_operator(model_path, "gecode", 15),
     }
 
 
@@ -1007,13 +989,8 @@ if __name__ == "__main__":
         "destroy_worst_workers_30pct": _make_destroy_worst_workers(0.30),
         "destroy_random_workers_20pct": _make_destroy_random_workers(0.20),
         "destroy_random_window_20pct": _make_destroy_random_window(0.20),
-        "destroy_forbidden_sequences_30pct": _make_destroy_forbidden_sequences(0.30),
-        "destroy_streak_around_worst_worker_h0pct": _make_destroy_streak_around_worst_worker(
-            holes_percentage=0.0,
-            binomial_p=0.2,
-        ),
-        "destroy_streak_around_worst_worker_h20pct": _make_destroy_streak_around_worst_worker(
-            holes_percentage=0.20,
+        "destroy_all_forbidden_sequences": _make_destroy_forbidden_sequences(1),
+        "destroy_streak_around_worst_worker": _make_destroy_streak_around_worst_worker(
             binomial_p=0.2,
         ),
         "destroy_worst_days_10pct": _make_destroy_worst_days(0.10),
@@ -1033,9 +1010,9 @@ if __name__ == "__main__":
     #in the beginning favour fast repairs
     for repair_op in mab.weights_repair.keys():
         if 'fast' in repair_op:
-            mab.weights_repair[repair_op] = 0.35
+            mab.weights_repair[repair_op] = 0.4
         elif 'long' in repair_op:
-            mab.weights_repair[repair_op] = 0.15
+            mab.weights_repair[repair_op] = 0.1
 
     print(f"Loaded instance: {instance_path}")
     print("Initial schedule:")
@@ -1102,14 +1079,17 @@ if __name__ == "__main__":
             log_lines.append(f"  repair_error={step['repair_error']}")
         log_lines.append(f"  destroyed={destroyed_label}")
         if step["weights_updated"]:
-            print("  weight update (destroy):")
+            all_ops = list(step["destroy_weight_updates"].keys()) + list(step["repair_weight_updates"].keys())
+            op_width = max([len("operator")] + [len(name) for name in all_ops])
+            print("\n  weight update (destroy):")
+            log_lines.append("")
             log_lines.append("  weight update (destroy):")
-            header = "    operator\tbefore\tafter"
+            header = f"    {'operator':<{op_width}} {'before':>8} {'after':>8}"
             print(header)
             log_lines.append(header)
             for name, change in step["destroy_weight_updates"].items():
                 line = (
-                    f"    {name:<28}\t{change['before']:>5.2f}\t{change['after']:>5.2f}"
+                    f"    {name:<{op_width}} {change['before']:>8.2f} {change['after']:>8.2f}"
                 )
                 if change["after"] > change["before"]:
                     print(f"{ANSI_LIGHT_GREEN}{line}{ANSI_RESET}")
@@ -1119,13 +1099,14 @@ if __name__ == "__main__":
                     print(line)
                 log_lines.append(line)
 
-            print("  weight update (repair):")
+            print("\n  weight update (repair):")
+            log_lines.append("")
             log_lines.append("  weight update (repair):")
             print(header)
             log_lines.append(header)
             for name, change in step["repair_weight_updates"].items():
                 line = (
-                    f"    {name:<28}\t{change['before']:>5.2f}\t{change['after']:>5.2f}"
+                    f"    {name:<{op_width}} {change['before']:>8.2f} {change['after']:>8.2f}"
                 )
                 if change["after"] > change["before"]:
                     print(f"{ANSI_LIGHT_GREEN}{line}{ANSI_RESET}")

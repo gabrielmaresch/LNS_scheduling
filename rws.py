@@ -233,6 +233,118 @@ class RWS:
                     by_day[day] += abs(actual - required)
             return by_day
 
+        def find_first_violation_after(
+            self,
+            worker: int,
+            day: int,
+        ) -> Optional[Tuple[int, int, str]]:
+            """Return first violation at/after (worker, day) in flattened cyclic order."""
+            inst = self.instance
+            n_workers = inst.num_workers
+            n_days = inst.num_days
+            total_cells = n_workers * n_days
+            if total_cells == 0:
+                return None
+
+            start_worker = int(worker) % n_workers
+            start_day = int(day) % n_days
+            start_idx = start_worker * n_days + start_day
+            marks: Dict[Tuple[int, int], str] = {}
+
+            def _mark(worker_id: int, day_id: int, violation_type: str) -> None:
+                key = (worker_id, day_id)
+                if key not in marks:
+                    marks[key] = violation_type
+
+            forbidden = set(inst.forbidden_sequences)
+            if forbidden:
+                for worker_id in range(n_workers):
+                    for day_id in range(n_days):
+                        cur_shift = self.assignment[day_id][worker_id]
+                        if inst.cyclicity or day_id < n_days - 1:
+                            next_worker, next_day = self._next_slot(worker_id, day_id)
+                            next_shift = self.assignment[next_day][next_worker]
+                            if (cur_shift, next_shift) in forbidden:
+                                _mark(worker_id, day_id, "forbidden_sequence_2")
+                                _mark(next_worker, next_day, "forbidden_sequence_2")
+                        if inst.cyclicity or day_id < n_days - 2:
+                            next_worker, next_day = self._next_slot(worker_id, day_id)
+                            next2_worker, next2_day = self._next_slot(next_worker, next_day)
+                            next_shift = self.assignment[next_day][next_worker]
+                            next2_shift = self.assignment[next2_day][next2_worker]
+                            if (cur_shift, next_shift, next2_shift) in forbidden:
+                                _mark(worker_id, day_id, "forbidden_sequence_3")
+                                _mark(next_worker, next_day, "forbidden_sequence_3")
+                                _mark(next2_worker, next2_day, "forbidden_sequence_3")
+
+            for worker_id in range(n_workers):
+                work_runs = self._runs_for_worker_days(worker_id, lambda shift: shift != 0)
+                off_runs = self._runs_for_worker_days(worker_id, lambda shift: shift == 0)
+
+                for run_days in work_runs:
+                    if not run_days:
+                        continue
+                    run_len = len(run_days)
+                    if run_days[0] == 0 and inst.cyclicity:
+                        prev_worker = self._prev_worker(worker_id)
+                        carry_len = self._tail_run_length(prev_worker, lambda shift: shift != 0)
+                        run_len = min(n_days, run_len + carry_len)
+                    continues = self._run_continues_in_next_worker(worker_id, run_days, lambda shift: shift != 0)
+                    if not continues and run_len < inst.min_consecutive_work:
+                        for day_id in run_days:
+                            _mark(worker_id, day_id, "min_consecutive_work")
+                    if run_len > inst.max_consecutive_work:
+                        for day_id in run_days:
+                            _mark(worker_id, day_id, "max_consecutive_work")
+
+                for run_days in off_runs:
+                    if not run_days:
+                        continue
+                    run_len = len(run_days)
+                    continues = self._run_continues_in_next_worker(worker_id, run_days, lambda shift: shift == 0)
+                    if not continues and run_len < inst.min_consecutive_off:
+                        for day_id in run_days:
+                            _mark(worker_id, day_id, "min_consecutive_off")
+                    if run_len > inst.max_consecutive_off:
+                        for day_id in run_days:
+                            _mark(worker_id, day_id, "max_consecutive_off")
+
+                for shift_id in range(len(inst.shift_names)):
+                    min_shift = inst.min_consecutive_shift.get(shift_id, 0)
+                    max_shift = inst.max_consecutive_shift.get(shift_id, 10**9)
+                    shift_runs = self._runs_for_worker_days(
+                        worker_id,
+                        lambda shift, sid=shift_id: shift == sid,
+                    )
+                    for run_days in shift_runs:
+                        if not run_days:
+                            continue
+                        run_len = len(run_days)
+                        continues = self._run_continues_in_next_worker(
+                            worker_id,
+                            run_days,
+                            lambda shift, sid=shift_id: shift == sid,
+                        )
+                        if not continues and run_len < min_shift:
+                            for day_id in run_days:
+                                _mark(worker_id, day_id, f"min_consecutive_shift_{shift_id}")
+                        if run_len > max_shift:
+                            for day_id in run_days:
+                                _mark(worker_id, day_id, f"max_consecutive_shift_{shift_id}")
+
+            for day_id, mismatch in self.day_shift_requirement_violation_counts().items():
+                if mismatch > 0:
+                    for worker_id in range(n_workers):
+                        _mark(worker_id, day_id, "day_shift_requirement")
+
+            for offset in range(total_cells):
+                idx = (start_idx + offset) % total_cells
+                worker_id, day_id = divmod(idx, n_days)
+                violation_type = marks.get((worker_id, day_id))
+                if violation_type is not None:
+                    return worker_id, day_id, violation_type
+            return None
+
         # Helper methods for validity checks
 
         def _runs_for_worker_days(self, worker: int, day_condition) -> List[List[int]]:
@@ -323,7 +435,7 @@ class RWS:
 
         # Display the parameters and schedule nicely
         
-        def display_schedule(self) -> None:
+        def display_schedule(self, show_first_violation: bool = True) -> None:
             """Display the schedule in a readable format."""
             inst = self.instance
             
@@ -373,8 +485,17 @@ class RWS:
                     shift_name = inst.shift_names[shift_id]
                     print(f"{shift_name:>3}", end=" ")
                 print()
-            
-            print("="*80 + "\n")
+
+            print("="*80)
+            if show_first_violation:
+                first = self.find_first_violation_after(0, 0)
+                if first is not None:
+                    worker_id, day_id, violation_type = first
+                    print(
+                        f"first violation: w{worker_id}, d{day_id}, type={violation_type}"
+                    )
+
+            print()
 
         def display_validity(self) -> None:
             """Print whether the schedule is valid."""

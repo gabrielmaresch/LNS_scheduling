@@ -904,13 +904,11 @@ def _make_destroy_streak():
         span = max(1, int(round(1 + 16 * _severity_to_fraction(severity))))
         backward = span // 2
         forward = span - backward - 1
-        holes = min(span, int(round(0.2 * span)))
         return _mab_make_destroy_streak(
             worker=None,
             day=None,
             forward=forward,
             backward=backward,
-            holes=holes,
         )(lns)
     return _op
 
@@ -924,11 +922,8 @@ def _build_destroy_library(
         "destroy_random_workers_20pct": _wrap_static_destroy(_mab_make_destroy_random_workers(0.20)),
         "destroy_random_window_20pct": _wrap_static_destroy(_mab_make_destroy_random_window(0.20)),
         "destroy_forbidden_sequences_30pct": _wrap_static_destroy(_mab_make_destroy_forbidden_sequences(0.30)),
-        "destroy_streak_around_worst_worker_h0pct": _wrap_static_destroy(
-            _mab_make_destroy_streak_around_worst_worker(holes_percentage=0.0, binomial_p=0.2)
-        ),
-        "destroy_streak_around_worst_worker_h20pct": _wrap_static_destroy(
-            _mab_make_destroy_streak_around_worst_worker(holes_percentage=0.20, binomial_p=0.2)
+        "destroy_streak_around_worst_worker": _wrap_static_destroy(
+            _mab_make_destroy_streak_around_worst_worker(binomial_p=0.2)
         ),
         "destroy_worst_days_10pct": _wrap_static_destroy(_mab_make_destroy_worst_days(0.10)),
         "destroy_worst_days_30pct": _wrap_static_destroy(_mab_make_destroy_worst_days(0.30)),
