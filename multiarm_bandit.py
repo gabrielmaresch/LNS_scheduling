@@ -41,7 +41,6 @@ def compute_softmax(score: float, beta_softmax: float) -> float:
     return math.exp(beta_softmax * score)
 
 
-
 @dataclass
 class MBandit:
     """Configuration and operator container for a multiarm-bandit LNS loop."""
@@ -52,15 +51,16 @@ class MBandit:
     weights_repair: Optional[Dict[str, float]] = None
     
     ###### Parameters for weight updates
-    iterations_till_weight_update: int = 15
-    reaction_factor: float = 0.2
-    beta_softmax: float = 0.8
+    iterations_till_weight_update: int = 10
+    reaction_factor: float = 0.25
+    beta_softmax: float = 1.5
     equal_move_allowed_freezeout: int = 5
     
     ##### Simulated annealing for accepting subpar solutions
     annealing_temperature: float = 5
     min_annealing_temperature: float = 0.7
     time_decay_annealing: float = 0.98
+    binomial_p: float = 0.2
     reshuffle_before_exploration: bool = True
     reshuffle_only_in_early_phase: bool = False
 
@@ -76,11 +76,14 @@ class MBandit:
     repair_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
     
     ######## Exploration
-    exploration_after_stagnation: int = 5
+    exploration_after_stagnation: int = 10
+    number_of_consecutive_explorations: int = 3
     destroy_exploration_operator: Callable[[rws_lns], list[tuple[int, int]]] = field(init=False, repr=False)
     solver_name: str = "chuffed"
     exploratory_timeout_seconds: float = 100
     repair_exploration_operator: Callable[[rws_lns], None] = field(init=False, repr=False)
+    exploration_steps_remaining: int = field(init=False, default=0)
+    next_exploration_trigger: int = field(init=False, default=0)
     
     lns: rws_lns = field(init=False)
     lns_loop_counter: int = 0
@@ -107,6 +110,7 @@ class MBandit:
             self.iterations_till_weight_update,
             self.global_timeout_seconds,
             self.exploration_after_stagnation,
+            self.number_of_consecutive_explorations,
             self.annealing_temperature,
             self.min_annealing_temperature,
             self.minizinc_timeout_seconds,
@@ -120,9 +124,12 @@ class MBandit:
             raise ValueError("min_temperature must be <= annealing_temperature")
         if self.equal_move_allowed_freezeout < 0:
             raise ValueError("equal_move_allowed_freezeout must be >= 0")
+        if not (0.0 <= self.binomial_p <= 0.5):
+            raise ValueError("binomial_p must be in [0, 0.5] for small-streak bias")
 
             
         if not self.destroy_operators:
+            max_border_ops = _make_destroy_max_border_operators(self.instance)
             self.destroy_operators = {
                 "destroy_worker": (
                     lambda lns: lns.destroy_worker(random.randrange(lns.instance.num_workers))
@@ -131,28 +138,32 @@ class MBandit:
                     lambda lns: lns.destroy_day(random.randrange(lns.instance.num_days))
                 ),
                 "destroy_random_window_20pct": _make_destroy_random_window(0.20),
-                "destroy_maxsalvage_streak_holes_0pct": _make_destroy_maxsalvage_streak_with_holes(0.0),
+                "destroy_forbidden_sequences_30pct": _make_destroy_forbidden_sequences(0.30),
+                "destroy_streak_around_worst_worker_h0pct": _make_destroy_streak_around_worst_worker(
+                    holes_percentage=0.0,
+                    binomial_p=self.binomial_p,
+                ),
+                "destroy_streak_around_worst_worker_h20pct": _make_destroy_streak_around_worst_worker(
+                    holes_percentage=0.20,
+                    binomial_p=self.binomial_p,
+                ),
+                **max_border_ops,
             }
 
         if not self.repair_operators:
             self.repair_operators = {
-                "repair_exact": (
-                    lambda lns: lns.repair_exact(
-                        model_path=self.model_path,
-                        solver_name=self.solver_name,
-                        timeout_seconds=self.minizinc_timeout_seconds,
-                    )
+                "repair_exact": _make_repair_operator(
+                    model_path=self.model_path,
+                    solver_name=self.solver_name,
+                    timeout_seconds=self.minizinc_timeout_seconds,
                 )
             }
         ### Here we set the standard destroy operator for explorations
-
         self.destroy_exploration_operator = _make_destroy_random_window(0.25)
-        self.repair_exploration_operator = (
-            lambda lns: lns.repair_exact(
-                model_path=self.model_path,
-                solver_name=self.solver_name,
-                timeout_seconds=int(self.exploratory_timeout_seconds),
-            )
+        self.repair_exploration_operator = _make_repair_operator(
+            model_path=self.model_path,
+            solver_name=self.solver_name,
+            timeout_seconds=int(self.exploratory_timeout_seconds),
         )
 
         self.weights_destroy = self._init_weights(self.weights_destroy, self.destroy_operators)
@@ -160,6 +171,8 @@ class MBandit:
         self._initialize_operator_tracking()
         self.destroy_tabu_history = deque()
         self.destroy_tabu_counts = {}
+        self.exploration_steps_remaining = 0
+        self.next_exploration_trigger = self.exploration_after_stagnation
         self.lns = rws_lns(instance=self.instance, incumbent=self.schedule)
 
     def _init_weights(
@@ -217,18 +230,27 @@ class MBandit:
         return workers, days
 
     def _is_strict_tabu(self, destroyed_workers: set[int], destroyed_days: set[int]) -> bool:
-        """Return True when current destroyed IDs match a recent tabu signature."""
+        """Return True when current destroyed IDs are a subset of a recent tabu signature."""
         if not destroyed_workers and not destroyed_days:
             return False
-        signature = self._destroy_signature(destroyed_workers, destroyed_days)
-        return signature in self.destroy_tabu_counts
+        workers_sig, days_sig = self._destroy_signature(destroyed_workers, destroyed_days)
+        for tabu_workers, tabu_days in self.destroy_tabu_counts:
+            workers_match = (not workers_sig) or workers_sig.issubset(tabu_workers)
+            days_match = (not days_sig) or days_sig.issubset(tabu_days)
+            if workers_sig and not days_sig and workers_match:
+                return True
+            if days_sig and not workers_sig and days_match:
+                return True
+            if workers_sig and days_sig and workers_match and days_match:
+                return True
+        return False
 
     def _choose_and_apply_destroy(
         self,
         lns: rws_lns,
         use_exploration: bool,
     ) -> tuple[str, list[tuple[int, int]], set[int], set[int]]:
-        """Apply a destroy move while avoiding immediate strict repetition of destroyed IDs."""
+        """Apply a destroy move while avoiding immediate tabu repeats/subsets of destroyed IDs."""
         attempts = max(8, len(self.destroy_operators) * 3)
         last_name = "destroy_exploration" if use_exploration else "destroy"
         last_result: list[tuple[int, int]] = []
@@ -327,14 +349,25 @@ class MBandit:
 
         incumbent_objective = self.objective_current_solution
 
-        use_exploration = self.stagnation_rounds >= self.exploration_after_stagnation
+        if (
+            self.exploration_steps_remaining <= 0
+            and self.stagnation_rounds >= self.next_exploration_trigger
+        ):
+            self.exploration_steps_remaining = self.number_of_consecutive_explorations
+            self.next_exploration_trigger = (
+                self.stagnation_rounds + self.exploration_after_stagnation
+            )
+        use_exploration = self.exploration_steps_remaining > 0
+        if use_exploration:
+            self.exploration_steps_remaining -= 1
         early_phase = incumbent_objective > float(self.equal_move_allowed_freezeout)
+        lns._repair_timeout_multiplier = 1.0 if early_phase else 2.0
         shuffle_suffix = ""
         reshuffle_allowed = (
             self.reshuffle_before_exploration
             and (early_phase or not self.reshuffle_only_in_early_phase)
         )
-        if use_exploration and reshuffle_allowed:
+        if use_exploration and reshuffle_allowed and self.stagnation_rounds % 5 == 0:
             day_ok = self.instance.num_days > 1
             worker_ok = self.instance.num_workers > 1
             if day_ok and (not worker_ok or random.random() < 0.5):
@@ -370,31 +403,37 @@ class MBandit:
         )
         destroyed_workers = sorted(destroyed_workers_set)
         destroyed_days = sorted(destroyed_days_set)
-        if "maxsalvage" in destroy_name:
-            keep_pairs = list(getattr(lns, "_last_destroy_selected_pairs", []))
+        if "streak" in destroy_name:
+            streak_pairs = list(getattr(lns, "_last_destroy_selected_pairs", []))
             hole_count = int(getattr(lns, "_last_destroy_holes_count", 0))
-            if keep_pairs:
-                start_day, start_worker = keep_pairs[0]
-                end_day, end_worker = keep_pairs[-1]
-                keep_text = (
-                    f"len={len(keep_pairs)} "
+            if streak_pairs:
+                start_day, start_worker = streak_pairs[0]
+                end_day, end_worker = streak_pairs[-1]
+                streak_text = (
+                    f"len={len(streak_pairs)} "
                     f"start=(w{start_worker},d{start_day}) "
                     f"end=(w{end_worker},d{end_day})"
                 )
             else:
-                keep_text = "len=0"
+                streak_text = "len=0"
             destroyed_display = (
-                f"salvage streak with holes {keep_text}; holes={hole_count}; "
-                f"destroyed_outside={len(destroy_result)}"
+                f"destroyed streak {streak_text}; holes={hole_count}; "
+                f"destroyed_inside={len(destroy_result)}"
             )
         elif use_exploration or "window" in destroy_name:
             destroyed_display = f"destroyed window: {destroyed_workers} x {destroyed_days}"
+        elif "forbidden_sequences" in destroy_name:
+            destroyed_display = f"destroyed forbidden sequences: vars_erased={len(destroy_result)}"
+        elif "max_border" in destroy_name:
+            border_kind = destroy_name.replace("destroy_max_border_", "", 1)
+            destroyed_display = f"destroyed max-border {border_kind}: vars_erased={len(destroy_result)}"
         elif "worker" in destroy_name:
             destroyed_display = f"destroyed workers: {destroyed_workers}"
         elif "day" in destroy_name:
             destroyed_display = f"destroyed days: {destroyed_days}"
         else:
             destroyed_display = f"destroyed pairs: {len(destroy_result)}"
+        destroyed_display = f"{destroy_name}: {destroyed_display}"
         destroyed_display += shuffle_suffix
         repair_failed = False
         repair_error: Optional[str] = None
@@ -429,16 +468,15 @@ class MBandit:
             self.min_annealing_temperature,
         )
         
-        if not use_exploration:
-            destroy_key = self._operator_key("destroy", destroy_name)
-            repair_key = self._operator_key("repair", repair_name)
-            for key in (destroy_key, repair_key):
-                self.operator_score_sums[key] = (
-                    self.operator_score_sums.get(key, 0.0) + float(contender_score)
-                )
-                self.operator_usage_counts[key] = (
-                    self.operator_usage_counts.get(key, 0) + 1
-                )
+        destroy_key = self._operator_key("destroy", destroy_name)
+        repair_key = self._operator_key("repair", repair_name)
+        for key in (destroy_key, repair_key):
+            self.operator_score_sums[key] = (
+                self.operator_score_sums.get(key, 0.0) + float(contender_score)
+            )
+            self.operator_usage_counts[key] = (
+                self.operator_usage_counts.get(key, 0) + 1
+            )
 
         accepted = (not repair_failed) and bool(contender_accepted)
         if accepted:
@@ -446,10 +484,9 @@ class MBandit:
             self.objective_current_solution = contender_objective
             if contender_objective < self.objective_best_solution:
                 self.objective_best_solution = contender_objective
-        if use_exploration:
+        if accepted and contender_objective < incumbent_objective:
             self.stagnation_rounds = 0
-        elif self.objective_current_solution < incumbent_objective:
-            self.stagnation_rounds = 0
+            self.next_exploration_trigger = self.exploration_after_stagnation
         else:
             self.stagnation_rounds += 1
         weights_updated = False
@@ -522,15 +559,17 @@ class MBandit:
 
 
 def _make_repair_operator(
-    model_path: Path, solver_name: str, timeout_seconds: int
+    model_path: str | Path | None, solver_name: str, timeout_seconds: int
 ) -> Callable[[rws_lns], None]:
     """Create a configured repair operator closure."""
     def _op(lns: rws_lns) -> None:
-        """Run exact MiniZinc repair with fixed solver/model/timeout settings."""
+        """Run exact MiniZinc repair with late-phase timeout scaling."""
+        multiplier = float(getattr(lns, "_repair_timeout_multiplier", 1.0))
+        scaled_timeout = max(1, int(math.ceil(timeout_seconds * multiplier)))
         lns.repair_exact(
             model_path=model_path,
             solver_name=solver_name,
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=scaled_timeout,
         )
     return _op
 
@@ -540,6 +579,11 @@ def _ceil_fraction_count(total: int, fraction: float) -> int:
     if fraction <= 0:
         return 0
     return min(total, math.ceil(total * fraction))
+
+
+def _sample_binomial(n: int, p: float) -> int:
+    """Sample Bin(n, p) using Bernoulli trials."""
+    return sum(1 for _ in range(max(0, n)) if random.random() < p)
 
 
 def _smallest_cover_interval(ids: list[int], size: int, cyclic: bool) -> list[int]:
@@ -649,69 +693,51 @@ def _make_destroy_random_window(fraction: float) -> Callable[[rws_lns], list[tup
     return _op
 
 
-def _make_destroy_maxsalvage_streak_with_holes(
-    hole_fraction: float = 0.0,
+def _make_destroy_forbidden_sequences(
+    fraction: float,
 ) -> Callable[[rws_lns], list[tuple[int, int]]]:
-    """Destroy outside best flattened streak and additionally free a fraction inside it."""
-    if hole_fraction < 0.0 or hole_fraction > 1.0:
-        raise ValueError("hole_fraction must be in [0, 1]")
+    """Destroy cells participating in a sampled fraction of forbidden-sequence occurrences."""
+    if not (0.0 <= fraction <= 1.0):
+        raise ValueError("fraction must be in [0, 1]")
 
     def _op(lns: rws_lns) -> list[tuple[int, int]]:
         schedule = lns.contender if lns.contender is not None else lns.incumbent
-        n_workers = lns.instance.num_workers
-        n_days = lns.instance.num_days
-        total_cells = n_workers * n_days
+        inst = lns.instance
+        forbidden = [tuple(seq) for seq in inst.forbidden_sequences if len(seq) >= 2]
+        if not forbidden or fraction <= 0.0:
+            return []
 
-        # NOTE: This is intentionally simple and called rarely; there is room for
-        # performance improvements by caching and incremental updates.
-        blocked_days = schedule._max_feasable_blocked_days()
-        memo: dict[tuple[int, int, int], int] = {}
-        best_worker = 0
-        best_day = 0
-        best_backward = 1
-        best_len = 0
-        for worker in range(n_workers):
-            for day in range(n_days):
-                forward_len = schedule.max_feasable_streak(
-                    worker=worker,
-                    day=day,
-                    forward=True,
-                    _blocked_days=blocked_days,
-                    _memo=memo,
-                )
-                if forward_len == 0:
-                    continue
-                backward_len = schedule.max_feasable_streak(
-                    worker=worker,
-                    day=day,
-                    forward=False,
-                    _blocked_days=blocked_days,
-                    _memo=memo,
-                )
-                total_len = min(total_cells, forward_len + backward_len - 1)
-                if total_len > best_len:
-                    best_worker = worker
-                    best_day = day
-                    best_backward = backward_len
-                    best_len = total_len
+        occurrences: list[list[tuple[int, int]]] = []
+        for worker in range(inst.num_workers):
+            for day in range(inst.num_days):
+                for seq in forbidden:
+                    seq_len = len(seq)
+                    if (not inst.cyclicity) and day > inst.num_days - seq_len:
+                        continue
+                    slots: list[tuple[int, int]] = []
+                    if inst.cyclicity:
+                        w, d = worker, day
+                        slots.append((w, d))
+                        for _ in range(seq_len - 1):
+                            w, d = schedule._next_slot(w, d)
+                            slots.append((w, d))
+                    else:
+                        slots = [(worker, day + offset) for offset in range(seq_len)]
+                    shifts = tuple(schedule.assignment[d][w] for w, d in slots)
+                    if shifts == seq:
+                        occurrences.append([(d, w) for w, d in slots])
 
-        start_idx = (best_worker * n_days + best_day - best_backward + 1) % total_cells
-        keep_pairs = []
-        for idx in range(start_idx, start_idx + max(1, best_len)):
-            worker_idx, day_idx = divmod(idx % total_cells, n_days)
-            keep_pairs.append((day_idx, worker_idx))
-        keep_pairs_set = set(keep_pairs)
-        hole_candidates = [key for key in keep_pairs if key in lns.fixed_vars]
-        hole_count = _ceil_fraction_count(len(hole_candidates), hole_fraction)
-        hole_pairs = set(random.sample(hole_candidates, hole_count)) if hole_count > 0 else set()
-        lns._last_destroy_selected_workers = sorted({worker for _, worker in keep_pairs})
-        lns._last_destroy_selected_days = sorted({day for day, _ in keep_pairs})
-        lns._last_destroy_selected_pairs = keep_pairs
-        lns._last_destroy_holes_count = len(hole_pairs)
+        k = _ceil_fraction_count(len(occurrences), fraction)
+        if k <= 0:
+            return []
+        selected = random.sample(occurrences, k)
+        to_destroy = {key for occ in selected for key in occ}
+        lns._last_destroy_selected_workers = sorted({worker for _, worker in to_destroy})
+        lns._last_destroy_selected_days = sorted({day for day, _ in to_destroy})
 
         freed: list[tuple[int, int]] = []
         for key in list(lns.fixed_vars):
-            if key not in keep_pairs_set or key in hole_pairs:
+            if key in to_destroy:
                 freed.append(key)
                 del lns.fixed_vars[key]
         return freed
@@ -719,11 +745,178 @@ def _make_destroy_maxsalvage_streak_with_holes(
     return _op
 
 
-def _make_destroy_maxsalvage(
-    hole_fraction: float = 0.0,
+def _make_destroy_streak(
+    worker: Optional[int],
+    day: Optional[int],
+    forward: int,
+    backward: int,
+    holes: int,
 ) -> Callable[[rws_lns], list[tuple[int, int]]]:
-    """Backward-compatible alias."""
-    return _make_destroy_maxsalvage_streak_with_holes(hole_fraction)
+    """Destroy variables inside a flattened cyclic streak from a start slot."""
+    if forward < 0 or backward < 0 or holes < 0:
+        raise ValueError("forward/backward/holes must be >= 0")
+
+    def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        n_workers = lns.instance.num_workers
+        n_days = lns.instance.num_days
+        total_cells = n_workers * n_days
+        if total_cells <= 1:
+            return []
+
+        start_worker = random.randrange(n_workers) if worker is None else int(worker) % n_workers
+        start_day = random.randrange(n_days) if day is None else int(day) % n_days
+        start_idx = start_worker * n_days + start_day
+        first_idx = (start_idx - backward) % total_cells
+        streak_len = min(total_cells, 1 + forward + backward)
+        streak_pairs = []
+        for offset in range(streak_len):
+            w_idx, d_idx = divmod((first_idx + offset) % total_cells, n_days)
+            streak_pairs.append((d_idx, w_idx))
+
+        hole_count = min(holes, len(streak_pairs))
+        hole_pairs = set(random.sample(streak_pairs, hole_count)) if hole_count > 0 else set()
+        destroy_pairs = [key for key in streak_pairs if key not in hole_pairs]
+
+        lns._last_destroy_selected_workers = sorted({w for _, w in streak_pairs})
+        lns._last_destroy_selected_days = sorted({d for d, _ in streak_pairs})
+        lns._last_destroy_selected_pairs = streak_pairs
+        lns._last_destroy_holes_count = hole_count
+
+        freed: list[tuple[int, int]] = []
+        for key in destroy_pairs:
+            if key in lns.fixed_vars:
+                freed.append(key)
+                del lns.fixed_vars[key]
+        return freed
+
+    return _op
+
+
+def _make_destroy_streak_around_worst_worker(
+    holes_percentage: float,
+    binomial_p: float,
+) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    """Destroy a symmetric streak around the current worst worker with optional holes."""
+    if not (0.0 <= holes_percentage <= 1.0):
+        raise ValueError("holes_percentage must be in [0, 1]")
+    if not (0.0 <= binomial_p <= 1.0):
+        raise ValueError("binomial_p must be in [0, 1]")
+
+    def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        schedule = lns.contender if lns.contender is not None else lns.incumbent
+        n_workers = lns.instance.num_workers
+        n_days = lns.instance.num_days
+        total_cells = n_workers * n_days
+        if total_cells <= 1:
+            return []
+
+        first_violation = schedule.worker_days_until_first_violation()
+        worst_worker = min(
+            range(n_workers),
+            key=lambda worker: (first_violation.get(worker, n_days + 1), worker),
+        )
+        worst_day1 = first_violation.get(worst_worker, n_days + 1)
+        center_day = 0 if worst_day1 > n_days else worst_day1 - 1
+        # Cap on flattened ring size N so streak length stays strictly < N.
+        max_radius = max(0, (total_cells - 2) // 2)
+        radius = _sample_binomial(max_radius, binomial_p)
+        span = 1 + 2 * radius
+        holes = int(round(holes_percentage * span))
+        return _make_destroy_streak(
+            worker=worst_worker,
+            day=center_day,
+            forward=radius,
+            backward=radius,
+            holes=holes,
+        )(lns)
+
+    return _op
+
+
+def _make_destroy_max_border(
+    mode: str,
+    shift_id: Optional[int] = None,
+) -> Callable[[rws_lns], list[tuple[int, int]]]:
+    """Destroy border slots of max-violating streaks until target length max-2."""
+    if mode not in {"work", "off", "shift"}:
+        raise ValueError("mode must be one of: work, off, shift")
+    if mode == "shift" and shift_id is None:
+        raise ValueError("shift mode requires shift_id")
+
+    def _op(lns: rws_lns) -> list[tuple[int, int]]:
+        schedule = lns.contender if lns.contender is not None else lns.incumbent
+        inst = lns.instance
+        n_days = inst.num_days
+        destroyed_pairs: set[tuple[int, int]] = set()
+        day_scores = schedule.day_shift_requirement_violation_counts()
+
+        for worker in range(inst.num_workers):
+            shifts = [schedule.assignment[day][worker] for day in range(n_days)]
+            if mode == "work":
+                flags = [shift != 0 for shift in shifts]
+                max_len = inst.max_consecutive_work
+            elif mode == "off":
+                flags = [shift == 0 for shift in shifts]
+                max_len = inst.max_consecutive_off
+            else:
+                sid = int(shift_id)
+                flags = [shift == sid for shift in shifts]
+                max_len = inst.max_consecutive_shift.get(sid, 10**9)
+            if max_len < 2:
+                continue
+
+            runs = RWS.Schedule._extract_runs_with_days(flags)
+            if inst.cyclicity and len(runs) > 1 and flags and flags[0] and flags[-1]:
+                runs[0] = runs[-1] + runs[0]
+                runs.pop()
+            for run in runs:
+                run_len = len(run)
+                if run_len <= max_len:
+                    continue
+                remove_total = min(run_len, run_len - (max_len - 2))
+                left_take = remove_total // 2
+                right_take = remove_total // 2
+                if remove_total % 2:
+                    left_day, right_day = run[0], run[-1]
+                    left_score = day_scores.get(left_day, 0)
+                    right_score = day_scores.get(right_day, 0)
+                    choose_left = left_score > right_score or (
+                        left_score == right_score and (worker + left_day + right_day) % 2 == 0
+                    )
+                    if choose_left:
+                        left_take += 1
+                    else:
+                        right_take += 1
+                for day in run[:left_take]:
+                    destroyed_pairs.add((day, worker))
+                for day in run[-right_take:]:
+                    destroyed_pairs.add((day, worker))
+
+        lns._last_destroy_selected_workers = sorted({worker for _, worker in destroyed_pairs})
+        lns._last_destroy_selected_days = sorted({day for day, _ in destroyed_pairs})
+        freed: list[tuple[int, int]] = []
+        for key in list(lns.fixed_vars):
+            if key in destroyed_pairs:
+                freed.append(key)
+                del lns.fixed_vars[key]
+        return freed
+
+    return _op
+
+
+def _make_destroy_max_border_operators(
+    instance: RWS.Instance,
+) -> Dict[str, Callable[[rws_lns], list[tuple[int, int]]]]:
+    """Build max-border destroy operators for work/off/shift streaks."""
+    ops: Dict[str, Callable[[rws_lns], list[tuple[int, int]]]] = {}
+    if instance.max_consecutive_work >= 2:
+        ops["destroy_max_border_work"] = _make_destroy_max_border("work")
+    if instance.max_consecutive_off >= 2:
+        ops["destroy_max_border_off"] = _make_destroy_max_border("off")
+    for sid in range(1, len(instance.shift_names)):
+        if instance.max_consecutive_shift.get(sid, 10**9) >= 2:
+            ops[f"destroy_max_border_shift_{sid}"] = _make_destroy_max_border("shift", sid)
+    return ops
 
 
 def _make_destroy_random_workers(fraction: float) -> Callable[[rws_lns], list[tuple[int, int]]]:
@@ -772,16 +965,25 @@ if __name__ == "__main__":
     }
 
 
+    max_border_ops = _make_destroy_max_border_operators(instance)
     destroy_ops: Dict[str, Callable[[rws_lns], list[tuple[int, int]]]] = {
         "destroy_worst_workers_10pct": _make_destroy_worst_workers(0.10),
         "destroy_worst_workers_30pct": _make_destroy_worst_workers(0.30),
         "destroy_random_workers_20pct": _make_destroy_random_workers(0.20),
         "destroy_random_window_20pct": _make_destroy_random_window(0.20),
-        "destroy_maxsalvage_streak_holes_0pct": _make_destroy_maxsalvage_streak_with_holes(0.0),
-        "destroy_maxsalvage_streak_holes_20pct": _make_destroy_maxsalvage_streak_with_holes(0.20),
+        "destroy_forbidden_sequences_30pct": _make_destroy_forbidden_sequences(0.30),
+        "destroy_streak_around_worst_worker_h0pct": _make_destroy_streak_around_worst_worker(
+            holes_percentage=0.0,
+            binomial_p=0.2,
+        ),
+        "destroy_streak_around_worst_worker_h20pct": _make_destroy_streak_around_worst_worker(
+            holes_percentage=0.20,
+            binomial_p=0.2,
+        ),
         "destroy_worst_days_10pct": _make_destroy_worst_days(0.10),
         "destroy_worst_days_30pct": _make_destroy_worst_days(0.30),
         "destroy_random_days_20pct": _make_destroy_random_days(0.20),
+        **max_border_ops,
     }
 
     mab = MBandit(

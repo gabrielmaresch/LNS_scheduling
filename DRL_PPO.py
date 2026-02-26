@@ -1,7 +1,7 @@
 from __future__ import annotations
 import random
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, Callable
 from pathlib import Path
 from collections import deque
@@ -13,7 +13,10 @@ from time import perf_counter
 from rws import RWS, rws_lns
 from rws_instance_loader import load_instance_and_schedule
 from multiarm_bandit import (
-    _make_destroy_maxsalvage as _mab_make_destroy_maxsalvage,
+    _make_destroy_forbidden_sequences as _mab_make_destroy_forbidden_sequences,
+    _make_destroy_max_border_operators as _mab_make_destroy_max_border_operators,
+    _make_destroy_streak as _mab_make_destroy_streak,
+    _make_destroy_streak_around_worst_worker as _mab_make_destroy_streak_around_worst_worker,
     _make_destroy_random_days as _mab_make_destroy_random_days,
     _make_destroy_random_window as _mab_make_destroy_random_window,
     _make_destroy_random_workers as _mab_make_destroy_random_workers,
@@ -282,10 +285,6 @@ class drl_alns:
         sig = self._destroyed_signature(destroyed_pairs)
         self.tabu_history.append(sig)
         self.tabu_signatures[sig] = self.tabu_signatures.get(sig, 0) + 1
-        # When deque evicts oldest (maxlen), manually clean it up
-        if len(self.tabu_history) == self.tabu_length:
-            # deque will auto-evict, but we need to track it
-            pass
     
     def _update_tabu_after_eviction(self):
         """Clean up tabu_signatures for entries no longer in history."""
@@ -885,6 +884,13 @@ def _wrap_fraction_destroy(
         return _op
     return _maker
 
+def _wrap_static_destroy(
+    op: Callable[[rws_lns], list[tuple[int, int]]]
+) -> Callable[[rws_lns, float], list[tuple[int, int]]]:
+    def _wrapped(lns: rws_lns, _severity: float) -> list[tuple[int, int]]:
+        return op(lns)
+    return _wrapped
+
 # -------------------------
 # Destroy Operators (use severity)
 # -------------------------
@@ -893,9 +899,55 @@ _make_destroy_random_days = _wrap_fraction_destroy(_mab_make_destroy_random_days
 _make_destroy_random_window = _wrap_fraction_destroy(_mab_make_destroy_random_window)
 _make_destroy_worst_workers = _wrap_fraction_destroy(_mab_make_destroy_worst_workers)
 _make_destroy_worst_days = _wrap_fraction_destroy(_mab_make_destroy_worst_days)
-def _make_destroy_maxsalvage():
-    op = _mab_make_destroy_maxsalvage()
-    return lambda lns, severity: op(lns)
+def _make_destroy_streak():
+    def _op(lns: rws_lns, severity: float) -> list[tuple[int, int]]:
+        span = max(1, int(round(1 + 16 * _severity_to_fraction(severity))))
+        backward = span // 2
+        forward = span - backward - 1
+        holes = min(span, int(round(0.2 * span)))
+        return _mab_make_destroy_streak(
+            worker=None,
+            day=None,
+            forward=forward,
+            backward=backward,
+            holes=holes,
+        )(lns)
+    return _op
+
+def _build_destroy_library(
+    instance: RWS.Instance,
+    include_legacy: bool = False,
+) -> Dict[str, Callable[[rws_lns, float], list[tuple[int, int]]]]:
+    ops: Dict[str, Callable[[rws_lns, float], list[tuple[int, int]]]] = {
+        "destroy_worst_workers_10pct": _wrap_static_destroy(_mab_make_destroy_worst_workers(0.10)),
+        "destroy_worst_workers_30pct": _wrap_static_destroy(_mab_make_destroy_worst_workers(0.30)),
+        "destroy_random_workers_20pct": _wrap_static_destroy(_mab_make_destroy_random_workers(0.20)),
+        "destroy_random_window_20pct": _wrap_static_destroy(_mab_make_destroy_random_window(0.20)),
+        "destroy_forbidden_sequences_30pct": _wrap_static_destroy(_mab_make_destroy_forbidden_sequences(0.30)),
+        "destroy_streak_around_worst_worker_h0pct": _wrap_static_destroy(
+            _mab_make_destroy_streak_around_worst_worker(holes_percentage=0.0, binomial_p=0.2)
+        ),
+        "destroy_streak_around_worst_worker_h20pct": _wrap_static_destroy(
+            _mab_make_destroy_streak_around_worst_worker(holes_percentage=0.20, binomial_p=0.2)
+        ),
+        "destroy_worst_days_10pct": _wrap_static_destroy(_mab_make_destroy_worst_days(0.10)),
+        "destroy_worst_days_30pct": _wrap_static_destroy(_mab_make_destroy_worst_days(0.30)),
+        "destroy_random_days_20pct": _wrap_static_destroy(_mab_make_destroy_random_days(0.20)),
+    }
+    for name, op in _mab_make_destroy_max_border_operators(instance).items():
+        ops[name] = _wrap_static_destroy(op)
+    if include_legacy:
+        ops.update(
+            {
+                "destroy_worst_workers": _make_destroy_worst_workers(),
+                "destroy_random_workers": _make_destroy_random_workers(),
+                "destroy_worst_days": _make_destroy_worst_days(),
+                "destroy_random_days": _make_destroy_random_days(),
+                "destroy_random_window": _make_destroy_random_window(),
+                "destroy_streak": _make_destroy_streak(),
+            }
+        )
+    return ops
 
 def _smooth(x, k=30):
     if len(x) < k:
@@ -1038,14 +1090,7 @@ if __name__ == "__main__":
         "repair_chuffed_long": _make_repair_operator(model_path, "chuffed", 15),
         "repair_gecode_long": _make_repair_operator(model_path, "gecode", 15),
     }
-    destroy_ops = {
-        "destroy_worst_workers": _make_destroy_worst_workers(),
-        "destroy_random_workers": _make_destroy_random_workers(),
-        "destroy_worst_days": _make_destroy_worst_days(),
-        "destroy_random_days": _make_destroy_random_days(),
-        "destroy_random_window": _make_destroy_random_window(),
-        "destroy_maxsalvage_window": _make_destroy_maxsalvage(),
-    }
+    destroy_ops = _build_destroy_library(instance=instance)
     solver = drl_alns(
         instance=instance,
         schedule=schedule,
