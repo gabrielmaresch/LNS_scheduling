@@ -182,9 +182,8 @@ class RWS:
                         continue
                     run_len = len(run_days)
                     if run_days[0] == 0 and inst.cyclicity:
-                        prev_worker = self._prev_worker(worker)
-                        carry_len = self._tail_run_length(prev_worker, lambda s: s != 0)
-                        run_len = min(inst.num_days, run_len + carry_len)
+                        carry_len = self._carry_run_length_before_slot(worker, 0, lambda s: s != 0)
+                        run_len = min(inst.num_workers * inst.num_days, run_len + carry_len)
                     continues = self._run_continues_in_next_worker(worker, run_days, lambda s: s != 0)
                     if (not continues and run_len < inst.min_consecutive_work) or run_len > inst.max_consecutive_work:
                         _mark(worker, run_days[0])
@@ -194,9 +193,8 @@ class RWS:
                         continue
                     run_len = len(run_days)
                     if run_days[0] == 0 and inst.cyclicity:
-                        prev_worker = self._prev_worker(worker)
-                        carry_len = self._tail_run_length(prev_worker, lambda s: s == 0)
-                        run_len = min(inst.num_days, run_len + carry_len)
+                        carry_len = self._carry_run_length_before_slot(worker, 0, lambda s: s == 0)
+                        run_len = min(inst.num_workers * inst.num_days, run_len + carry_len)
                     continues = self._run_continues_in_next_worker(worker, run_days, lambda s: s == 0)
                     if (not continues and run_len < inst.min_consecutive_off) or run_len > inst.max_consecutive_off:
                         _mark(worker, run_days[0])
@@ -210,9 +208,12 @@ class RWS:
                             continue
                         run_len = len(run_days)
                         if run_days[0] == 0 and inst.cyclicity:
-                            prev_worker = self._prev_worker(worker)
-                            carry_len = self._tail_run_length(prev_worker, lambda s, sid=shift_id: s == sid)
-                            run_len = min(inst.num_days, run_len + carry_len)
+                            carry_len = self._carry_run_length_before_slot(
+                                worker,
+                                0,
+                                lambda s, sid=shift_id: s == sid,
+                            )
+                            run_len = min(inst.num_workers * inst.num_days, run_len + carry_len)
                         continues = self._run_continues_in_next_worker(
                             worker,
                             run_days,
@@ -294,9 +295,8 @@ class RWS:
                         continue
                     run_len = len(run_days)
                     if run_days[0] == 0 and inst.cyclicity:
-                        prev_worker = self._prev_worker(worker_id)
-                        carry_len = self._tail_run_length(prev_worker, lambda shift: shift != 0)
-                        run_len = min(n_days, run_len + carry_len)
+                        carry_len = self._carry_run_length_before_slot(worker_id, 0, lambda shift: shift != 0)
+                        run_len = min(n_workers * n_days, run_len + carry_len)
                     continues = self._run_continues_in_next_worker(worker_id, run_days, lambda shift: shift != 0)
                     if not continues and run_len < inst.min_consecutive_work:
                         for day_id in run_days:
@@ -310,9 +310,8 @@ class RWS:
                         continue
                     run_len = len(run_days)
                     if run_days[0] == 0 and inst.cyclicity:
-                        prev_worker = self._prev_worker(worker_id)
-                        carry_len = self._tail_run_length(prev_worker, lambda shift: shift == 0)
-                        run_len = min(n_days, run_len + carry_len)
+                        carry_len = self._carry_run_length_before_slot(worker_id, 0, lambda shift: shift == 0)
+                        run_len = min(n_workers * n_days, run_len + carry_len)
                     continues = self._run_continues_in_next_worker(worker_id, run_days, lambda shift: shift == 0)
                     if not continues and run_len < inst.min_consecutive_off:
                         for day_id in run_days:
@@ -333,12 +332,12 @@ class RWS:
                             continue
                         run_len = len(run_days)
                         if run_days[0] == 0 and inst.cyclicity:
-                            prev_worker = self._prev_worker(worker_id)
-                            carry_len = self._tail_run_length(
-                                prev_worker,
+                            carry_len = self._carry_run_length_before_slot(
+                                worker_id,
+                                0,
                                 lambda shift, sid=shift_id: shift == sid,
                             )
-                            run_len = min(n_days, run_len + carry_len)
+                            run_len = min(n_workers * n_days, run_len + carry_len)
                         continues = self._run_continues_in_next_worker(
                             worker_id,
                             run_days,
@@ -409,12 +408,21 @@ class RWS:
                 return worker, day + 1
             return self._next_worker(worker), 0
 
-        def _tail_run_length(self, worker: int, day_condition) -> int:
+        def _prev_slot(self, worker: int, day: int) -> tuple[int, int]:
+            inst = self.instance
+            if day > 0:
+                return worker, day - 1
+            return self._prev_worker(worker), inst.num_days - 1
+
+        def _carry_run_length_before_slot(self, worker: int, day: int, day_condition) -> int:
             inst = self.instance
             length = 0
-            for day in range(inst.num_days - 1, -1, -1):
-                if day_condition(self.assignment[day][worker]):
+            total_slots = inst.num_workers * inst.num_days
+            prev_worker, prev_day = self._prev_slot(worker, day)
+            for _ in range(total_slots - 1):
+                if day_condition(self.assignment[prev_day][prev_worker]):
                     length += 1
+                    prev_worker, prev_day = self._prev_slot(prev_worker, prev_day)
                 else:
                     break
             return length

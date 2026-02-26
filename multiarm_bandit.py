@@ -991,7 +991,7 @@ if __name__ == "__main__":
         "destroy_random_window_20pct": _make_destroy_random_window(0.20),
         "destroy_all_forbidden_sequences": _make_destroy_forbidden_sequences(1),
         "destroy_streak_around_worst_worker": _make_destroy_streak_around_worst_worker(
-            binomial_p=0.2,
+            binomial_p=0.3,
         ),
         "destroy_worst_days_10pct": _make_destroy_worst_days(0.10),
         "destroy_worst_days_30pct": _make_destroy_worst_days(0.30),
@@ -1005,6 +1005,9 @@ if __name__ == "__main__":
         model_path=model_path,
         destroy_operators=destroy_ops,
         repair_operators=repair_ops,
+        global_timeout_seconds=150,
+        minizinc_timeout_seconds=45
+
     )
 
     #in the beginning favour fast repairs

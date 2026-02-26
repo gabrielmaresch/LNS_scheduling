@@ -8,6 +8,7 @@ set of int: workers = 1..n;
 
 int: s; %number of shifts
 set of int: shifts = 1..s; %1: day, 2: afternoon, 3: night, 0: off
+int: horizon = n * d; % flattened cyclic schedule length
 
 
 array[0..s+1, 1..2] of int: max_min_lengths;
@@ -78,19 +79,19 @@ constraint forall(i in 1..num_fixed_assignments)(
 );
 
 % Auxilary variable: On day d', how many consecutive days has worker n' already worked
-array[1..n, 1..d] of var 0..d: work_length_until;
+array[1..n, 1..d] of var 0..horizon: work_length_until;
 
 % Same for shifts (including 0 = off)
-array[1..n, 1..d, 0..s] of var 0..d: shift_length_until;
+array[1..n, 1..d, 0..s] of var 0..horizon: shift_length_until;
 
 % Slack variables for soft min/max constraints
-array[1..n] of var 0..d: slack_work_min;
-array[1..n] of var 0..d: slack_work_max;
-array[1..n] of var 0..d: slack_rest_min;
-array[1..n] of var 0..d: slack_rest_max;
+array[1..n] of var 0..horizon: slack_work_min;
+array[1..n] of var 0..horizon: slack_work_max;
+array[1..n] of var 0..horizon: slack_rest_min;
+array[1..n] of var 0..horizon: slack_rest_max;
 array[1..n] of var 0..1: slack_offday_min;
-array[1..n, 1..s] of var 0..d: slack_shifts_min;
-array[1..n, 1..s] of var 0..d: slack_shifts_max;
+array[1..n, 1..s] of var 0..horizon: slack_shifts_min;
+array[1..n, 1..s] of var 0..horizon: slack_shifts_max;
 array[1..d, 1..s] of var 0..n: slack_required_min;
 array[1..d, 1..s] of var 0..n: slack_required_max;
 var int: slack_forbidden_total;
@@ -119,13 +120,13 @@ constraint
       endif
   );
 
-array[1..n, 1..d] of var 0..d: work_length_cyclic;
+array[1..n, 1..d] of var 0..horizon: work_length_cyclic;
 
 constraint forall(worker in workers)(
   work_length_cyclic[worker, 1] =
     if shift_of[worker, 1] > 0 then
       if prev_slot_shift(worker, 1) > 0 then
-        min(d, work_length_until[prev_worker(worker), d] + 1)
+        min(horizon, work_length_cyclic[prev_worker(worker), d] + 1)
       else
         1
       endif
@@ -138,7 +139,7 @@ constraint
   forall(worker in workers, day in 2..d)(
     work_length_cyclic[worker,day] =
       if shift_of[worker,day] > 0 then
-        min(d, work_length_cyclic[worker,day-1] + 1)
+        min(horizon, work_length_cyclic[worker,day-1] + 1)
       else
         0
       endif
@@ -160,14 +161,14 @@ constraint
       endif
   );
 
-array[1..n, 1..d, 0..s] of var 0..d: shift_length_cyclic;
+array[1..n, 1..d, 0..s] of var 0..horizon: shift_length_cyclic;
 
 constraint
   forall(worker in workers, shift in 0..s)(
     shift_length_cyclic[worker,1,shift] =
       if shift_of[worker,1] = shift then
         if prev_slot_shift(worker,1) = shift then
-          min(d, shift_length_until[prev_worker(worker),d,shift] + 1)
+          min(horizon, shift_length_cyclic[prev_worker(worker),d,shift] + 1)
         else
           1
         endif
@@ -180,7 +181,7 @@ constraint
   forall(worker in workers, day in 2..d, shift in 0..s)(
     shift_length_cyclic[worker,day,shift] =
       if shift_of[worker,day] = shift then
-        min(d, shift_length_cyclic[worker,day-1,shift] + 1)
+        min(horizon, shift_length_cyclic[worker,day-1,shift] + 1)
       else
         0
       endif
