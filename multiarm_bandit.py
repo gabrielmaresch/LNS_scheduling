@@ -1123,7 +1123,7 @@ if __name__ == "__main__":
             break
 
     total_runtime = perf_counter() - loop_start
-    log_path = base / "multiarm_bandit.log"
+    log_path = base / "logs" / "multiarm_bandit.log"
     with log_path.open("w", encoding="utf-8") as handle:
         if log_lines:
             handle.write("\n".join(log_lines) + "\n")
@@ -1148,7 +1148,9 @@ if __name__ == "__main__":
     final_schedule = mab.schedule
     final_inst = final_schedule.instance
     final_objective = mab.objective_current_solution
-    snapshot_path = base / f"{instance_path.stem}_with_last_schedule.txt"
+    snapshot_dir = base / "logs"
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    snapshot_path = snapshot_dir / f"{instance_path.stem}_with_last_schedule.txt"
     snapshot_lines: list[str] = []
     snapshot_lines.append(instance_path.read_text(encoding="utf-8").rstrip())
     snapshot_lines.append("")

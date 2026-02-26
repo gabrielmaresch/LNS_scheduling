@@ -18,7 +18,7 @@ int: max_rest;
 
 int: min_work;
 int: max_work;
-bool: cyclic; #worker i picks up schedule of worker i+1 in next week
+bool: cyclic; % worker i picks up schedule of worker i+1 in next week
 
 int: num_forbidden_sequences;
 % Row width is fixed at 3 (max supported forbidden-sequence length).
@@ -54,8 +54,10 @@ array[1..n, 1..d] of var 0..s: shift_of; % shift index for worker/day (0 = off)
 
 % Helpers for formulating schedule rotation:
 % (worker, d) is followed by (next_worker(worker), 1).
+
 function var int: next_slot_shift(int: worker, int: day) =
   if day < d then shift_of[worker, day + 1] else shift_of[next_worker(worker), 1] endif;
+
 function var int: next2_slot_shift(int: worker, int: day) =
   if day <= d - 2 then shift_of[worker, day + 2]
   elseif day = d - 1 then shift_of[next_worker(worker), 1]
@@ -65,17 +67,21 @@ function var int: prev_slot_shift(int: worker, int: day) =
   if day > 1 then shift_of[worker, day - 1] else shift_of[prev_worker(worker), d] endif;
 
 int: num_fixed_assignments;
+
 % Each fixed assignment row is a triple: [worker, day, shift].
 % The 1..3 index is tuple width, not number of assignments.
 array[1..num_fixed_assignments, 1..3] of int: fixed_assignments;
 
+% Now we actually fix the assignment (partially)
 constraint forall(i in 1..num_fixed_assignments)(
   shift_of[fixed_assignments[i, 1], fixed_assignments[i, 2]] = fixed_assignments[i, 3]
 );
 
 % Auxilary variable: On day d', how many consecutive days has worker n' already worked
 array[1..n, 1..d] of var 0..d: work_length_until;
-array[1..n, 1..d] of var 0..d: rest_length_until;
+
+% Same for shifts (including 0 = off)
+array[1..n, 1..d, 0..s] of var 0..d: shift_length_until;
 
 % Slack variables for soft min/max constraints
 array[1..n] of var 0..d: slack_work_min;
@@ -83,8 +89,8 @@ array[1..n] of var 0..d: slack_work_max;
 array[1..n] of var 0..d: slack_rest_min;
 array[1..n] of var 0..d: slack_rest_max;
 array[1..n] of var 0..1: slack_offday_min;
-array[1..n, 0..s] of var 0..d: slack_shifts_min;
-array[1..n, 0..s] of var 0..d: slack_shifts_max;
+array[1..n, 1..s] of var 0..d: slack_shifts_min;
+array[1..n, 1..s] of var 0..d: slack_shifts_max;
 array[1..d, 1..s] of var 0..n: slack_required_min;
 array[1..d, 1..s] of var 0..n: slack_required_max;
 var int: slack_forbidden_total;
@@ -94,8 +100,7 @@ constraint slack_forbidden_total >= 0;
 %   sum(day in days)(bool2int(shift_of[worker, day] = 0)) + slack_offday_min[worker] >= 1
 % );
 
-% Consecutive run length per exact shift (including 0 = off)
-array[1..n, 1..d, 0..s] of var 0..d: shift_length_until;
+
 
 
 %%% lenght of consecutive workdays
@@ -135,43 +140,6 @@ constraint
       endif
   );
 
-
-%%% lenght of consecutive restdays
-constraint
-  forall(worker in workers)(
-    rest_length_until[worker,1] = bool2int(shift_of[worker, 1] = 0)
-  );
-
-constraint
-  forall(worker in workers, day in 2..d)(
-    rest_length_until[worker,day] =
-      if shift_of[worker,day] = 0 then
-        rest_length_until[worker,day-1] + 1
-      else
-        0
-      endif
-  );
-
-array[1..n, 1..d] of var 0..d: rest_length_cyclic;
-
-constraint forall(worker in workers)(
-  rest_length_cyclic[worker, 1] =
-    if (shift_of[worker, 1] = 0 /\ prev_slot_shift(worker, 1) = 0) then
-      min(d, rest_length_until[prev_worker(worker), d] + 1)
-    else
-      0
-    endif
-);
-
-constraint
-  forall(worker in workers, day in 2..d)(
-    rest_length_cyclic[worker,day] =
-      if shift_of[worker,day] = 0 then
-        min(d, rest_length_cyclic[worker,day-1] + 1)
-      else
-        0
-      endif
-  );
 
 constraint
   forall(worker in workers, shift in 0..s)(
@@ -231,29 +199,29 @@ constraint forall(worker in workers)(  %last day check
 
 % min and max restlength constraints
 constraint forall(worker in workers)(
-  max(day in days)(rest_length_cyclic[worker, day]) <= max_rest + slack_rest_max[worker]
+  max(day in days)(shift_length_cyclic[worker, day, 0]) <= max_rest + slack_rest_max[worker]
 );
 constraint forall(worker in workers)(
   if exists(day in 1..d-1)(shift_of[worker, day] = 0  /\  shift_of[worker, day + 1] > 0) then
     min(day in 1..d-1 where shift_of[worker, day] = 0  /\ shift_of[worker, day + 1] > 0)( % day is last rest
-   rest_length_cyclic[worker, day]) + slack_rest_min[worker] >= min_rest
+   shift_length_cyclic[worker, day, 0]) + slack_rest_min[worker] >= min_rest
   else
     true
   endif
 );
 constraint forall(worker in workers)(  %last day check
   if shift_of[worker, d] = 0 /\ (not cyclic \/ next_slot_shift(worker, d) > 0) then
-    rest_length_cyclic[worker, d] + slack_rest_min[worker] >= min_rest
+    shift_length_cyclic[worker, d, 0] + slack_rest_min[worker] >= min_rest
   endif
 );
 
-% soft per-shift min/max consecutive constraints (0 = off, 1..s = working shifts)
-constraint forall(worker in workers, shift in 0..s)(
+% soft per-shift min/max consecutive constraints (working shifts only)
+constraint forall(worker in workers, shift in shifts)(
   max(day in days)(shift_length_cyclic[worker, day, shift]) <=
     max_min_lengths[shift, 2] + slack_shifts_max[worker, shift]
 );
 
-constraint forall(worker in workers, shift in 0..s)(
+constraint forall(worker in workers, shift in shifts)(
   if exists(day in 1..d-1)(shift_of[worker, day] = shift /\ shift_of[worker, day + 1] != shift) then
     min(day in 1..d-1 where shift_of[worker, day] = shift /\ shift_of[worker, day + 1] != shift)(
       shift_length_cyclic[worker, day, shift]
@@ -263,7 +231,7 @@ constraint forall(worker in workers, shift in 0..s)(
   endif
 );
 
-constraint forall(worker in workers, shift in 0..s)(
+constraint forall(worker in workers, shift in shifts)(
   if shift_of[worker, d] = shift /\ (not cyclic \/ next_slot_shift(worker, d) != shift) then
     shift_length_cyclic[worker, d, shift] + slack_shifts_min[worker, shift] >= max_min_lengths[shift, 1]
   endif
@@ -317,7 +285,7 @@ solve
   :: int_search([shift_of[w, day] | w in workers, day in days], first_fail, indomain_min, complete)
   minimize
   sum(worker in workers)(slack_work_min[worker] + slack_work_max[worker] + slack_rest_min[worker] + slack_rest_max[worker] + slack_offday_min[worker])
-  + sum(worker in workers, shift in 0..s)(slack_shifts_min[worker, shift] + slack_shifts_max[worker, shift])
+  + sum(worker in workers, shift in shifts)(slack_shifts_min[worker, shift] + slack_shifts_max[worker, shift])
   + sum(day in days, shift in shifts)(slack_required_min[day, shift] + slack_required_max[day, shift])
   + slack_forbidden_total;
 

@@ -457,7 +457,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--out",
         type=Path,
-        default=Path(__file__).resolve().parent / "multibandit-analytics.png",
+        default=Path(__file__).resolve().parent / "logs" / "multibandit-analytics.png",
         help="Output image path.",
     )
     parser.add_argument(

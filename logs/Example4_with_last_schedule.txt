@@ -36,15 +36,15 @@ N - A
 N - D
 
 # --- LNS APPENDIX ---
-final_objective=2.0
-runtime_seconds=324.746 iterations=32 solved=False
+final_objective=28.0
+runtime_seconds=387.504 iterations=25 solved=False
 
 mbandit_parameters:
 iterations_till_weight_update=10
 reaction_factor=0.2
 beta_softmax=1
 equal_move_allowed_freezeout=5
-annealing_temperature=2.6194157016744635
+annealing_temperature=3.0173236488944846
 min_annealing_temperature=0.7
 time_decay_annealing=0.98
 binomial_p=0.2
@@ -60,21 +60,38 @@ destroy_tabu_length=8
 
 last_schedule_shift_ids:
 day        0   1   2   3   4   5   6
-worker  0:   2   2   2   2   0   0   3
-worker  1:   3   3   0   0   1   1   1
-worker  2:   2   2   2   0   0   0   0
-worker  3:   1   1   1   1   1   1   0
-worker  4:   1   1   1   1   2   2   0
-worker  5:   0   0   3   3   3   0   0
+worker  0:   2   2   0   0   2   2   2
+worker  1:   0   0   0   0   0   0   0
+worker  2:   0   1   1   1   0   0   0
+worker  3:   0   0   0   0   0   0   0
+worker  4:   1   1   1   1   1   0   0
+worker  5:   0   0   1   1   1   1   0
 worker  6:   1   1   1   1   1   1   0
-worker  7:   0   0   0   1   1   1   0
-worker  8:   1   1   1   1   1   1   0
-worker  9:   1   1   1   2   2   2   0
+worker  7:   1   1   1   1   1   1   0
+worker  8:   1   1   2   2   2   2   0
+worker  9:   2   2   2   2   2   0   0
 worker 10:   2   2   2   2   2   2   0
 worker 11:   2   2   2   2   2   2   0
-worker 12:   2   2   2   2   2   2   0
+worker 12:   2   2   2   2   0   2   2
 
 violation_diagnostic_from_find_first_violation_after:
-first_from_w0_d0: w0, d6, type=shift_req_over_N_by_1
-- w0, d6, type=shift_req_over_N_by_1
-- w1, d6, type=shift_req_over_D_by_1
+first_from_w0_d0: w0, d2, type=shift_req_under_N_by_1
+- w0, d2, type=shift_req_under_N_by_1
+- w0, d3, type=shift_req_under_N_by_1
+- w0, d6, type=shift_req_over_A_by_2
+- w1, d0, type=max_consecutive_off
+- w1, d1, type=max_consecutive_off
+- w1, d2, type=max_consecutive_off
+- w1, d3, type=max_consecutive_off
+- w1, d4, type=max_consecutive_off
+- w1, d5, type=max_consecutive_off
+- w1, d6, type=max_consecutive_off
+- w2, d0, type=max_consecutive_off
+- w3, d0, type=max_consecutive_off
+- w3, d1, type=max_consecutive_off
+- w3, d2, type=max_consecutive_off
+- w3, d3, type=max_consecutive_off
+- w3, d4, type=max_consecutive_off
+- w3, d5, type=max_consecutive_off
+- w3, d6, type=max_consecutive_off
+- w12, d6, type=shift_req_over_A_by_2
