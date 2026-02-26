@@ -1145,4 +1145,81 @@ if __name__ == "__main__":
         mab.schedule.display_schedule()
         mab.schedule.display_validity()
 
+    final_schedule = mab.schedule
+    final_inst = final_schedule.instance
+    final_objective = mab.objective_current_solution
+    snapshot_path = base / f"{instance_path.stem}_with_last_schedule.txt"
+    snapshot_lines: list[str] = []
+    snapshot_lines.append(instance_path.read_text(encoding="utf-8").rstrip())
+    snapshot_lines.append("")
+    snapshot_lines.append("# --- LNS APPENDIX ---")
+    snapshot_lines.append(
+        f"final_objective={final_objective if math.isfinite(final_objective) else 'inf'}"
+    )
+    snapshot_lines.append(
+        f"runtime_seconds={total_runtime:.3f} iterations={last_iteration} solved={solved}"
+    )
+    snapshot_lines.append("")
+    snapshot_lines.append("mbandit_parameters:")
+    mbandit_param_names = [
+        "iterations_till_weight_update",
+        "reaction_factor",
+        "beta_softmax",
+        "equal_move_allowed_freezeout",
+        "annealing_temperature",
+        "min_annealing_temperature",
+        "time_decay_annealing",
+        "binomial_p",
+        "reshuffle_before_exploration",
+        "reshuffle_only_in_early_phase",
+        "global_timeout_seconds",
+        "minizinc_timeout_seconds",
+        "exploration_after_stagnation",
+        "number_of_consecutive_explorations",
+        "exploratory_timeout_seconds",
+        "solver_name",
+        "destroy_tabu_length",
+    ]
+    for name in mbandit_param_names:
+        snapshot_lines.append(f"{name}={getattr(mab, name)}")
+    snapshot_lines.append("")
+    snapshot_lines.append("last_schedule_shift_ids:")
+    snapshot_lines.append(
+        "day      " + " ".join(f"{day:>3}" for day in range(final_inst.num_days))
+    )
+    for worker in range(final_inst.num_workers):
+        shifts = " ".join(
+            f"{final_schedule.assignment[day][worker]:>3}" for day in range(final_inst.num_days)
+        )
+        snapshot_lines.append(f"worker {worker:>2}: {shifts}")
+    snapshot_lines.append("")
+    snapshot_lines.append("violation_diagnostic_from_find_first_violation_after:")
+    first_violation = final_schedule.find_first_violation_after(0, 0)
+    if first_violation is None:
+        snapshot_lines.append("none")
+    else:
+        snapshot_lines.append(
+            f"first_from_w0_d0: w{first_violation[0]}, d{first_violation[1]}, type={first_violation[2]}"
+        )
+        total_slots = final_inst.num_workers * final_inst.num_days
+        cursor_worker, cursor_day = 0, 0
+        seen: set[tuple[int, int, str]] = set()
+        ordered_hits: list[tuple[int, int, str]] = []
+        for _ in range(total_slots):
+            hit = final_schedule.find_first_violation_after(cursor_worker, cursor_day)
+            if hit is None:
+                break
+            key = (hit[0], hit[1], hit[2])
+            if key in seen:
+                break
+            seen.add(key)
+            ordered_hits.append(key)
+            hit_idx = hit[0] * final_inst.num_days + hit[1]
+            next_idx = (hit_idx + 1) % total_slots
+            cursor_worker, cursor_day = divmod(next_idx, final_inst.num_days)
+        for worker, day, violation_type in ordered_hits:
+            snapshot_lines.append(f"- w{worker}, d{day}, type={violation_type}")
+    snapshot_path.write_text("\n".join(snapshot_lines) + "\n", encoding="utf-8")
+
     print(f"Wrote run log: {log_path}")
+    print(f"Wrote final schedule appendix: {snapshot_path}")

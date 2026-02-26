@@ -152,6 +152,27 @@ constraint
       endif
   );
 
+array[1..n, 1..d] of var 0..d: rest_length_cyclic;
+
+constraint forall(worker in workers)(
+  rest_length_cyclic[worker, 1] =
+    if (shift_of[worker, 1] = 0 /\ prev_slot_shift(worker, 1) = 0) then
+      min(d, rest_length_until[prev_worker(worker), d] + 1)
+    else
+      0
+    endif
+);
+
+constraint
+  forall(worker in workers, day in 2..d)(
+    rest_length_cyclic[worker,day] =
+      if shift_of[worker,day] = 0 then
+        min(d, rest_length_cyclic[worker,day-1] + 1)
+      else
+        0
+      endif
+  );
+
 constraint
   forall(worker in workers, shift in 0..s)(
     shift_length_until[worker,1,shift] = bool2int(shift_of[worker,1] = shift)
@@ -162,6 +183,28 @@ constraint
     shift_length_until[worker,day,shift] =
       if shift_of[worker,day] = shift then
         shift_length_until[worker,day-1,shift] + 1
+      else
+        0
+      endif
+  );
+
+array[1..n, 1..d, 0..s] of var 0..d: shift_length_cyclic;
+
+constraint
+  forall(worker in workers, shift in 0..s)(
+    shift_length_cyclic[worker,1,shift] =
+      if (shift_of[worker,1] = shift /\ prev_slot_shift(worker,1) = shift) then
+        min(d, shift_length_until[prev_worker(worker),d,shift] + 1)
+      else
+        0
+      endif
+  );
+
+constraint
+  forall(worker in workers, day in 2..d, shift in 0..s)(
+    shift_length_cyclic[worker,day,shift] =
+      if shift_of[worker,day] = shift then
+        min(d, shift_length_cyclic[worker,day-1,shift] + 1)
       else
         0
       endif
@@ -188,32 +231,32 @@ constraint forall(worker in workers)(  %last day check
 
 % min and max restlength constraints
 constraint forall(worker in workers)(
-  max(day in days)(rest_length_until[worker, day]) <= max_rest + slack_rest_max[worker]
+  max(day in days)(rest_length_cyclic[worker, day]) <= max_rest + slack_rest_max[worker]
 );
 constraint forall(worker in workers)(
   if exists(day in 1..d-1)(shift_of[worker, day] = 0  /\  shift_of[worker, day + 1] > 0) then
     min(day in 1..d-1 where shift_of[worker, day] = 0  /\ shift_of[worker, day + 1] > 0)( % day is last rest
-   rest_length_until[worker, day]) + slack_rest_min[worker] >= min_rest
+   rest_length_cyclic[worker, day]) + slack_rest_min[worker] >= min_rest
   else
     true
   endif
 );
 constraint forall(worker in workers)(  %last day check
   if shift_of[worker, d] = 0 /\ (not cyclic \/ next_slot_shift(worker, d) > 0) then
-    rest_length_until[worker, d] + slack_rest_min[worker] >= min_rest
+    rest_length_cyclic[worker, d] + slack_rest_min[worker] >= min_rest
   endif
 );
 
 % soft per-shift min/max consecutive constraints (0 = off, 1..s = working shifts)
 constraint forall(worker in workers, shift in 0..s)(
-  max(day in days)(shift_length_until[worker, day, shift]) <=
+  max(day in days)(shift_length_cyclic[worker, day, shift]) <=
     max_min_lengths[shift, 2] + slack_shifts_max[worker, shift]
 );
 
 constraint forall(worker in workers, shift in 0..s)(
   if exists(day in 1..d-1)(shift_of[worker, day] = shift /\ shift_of[worker, day + 1] != shift) then
     min(day in 1..d-1 where shift_of[worker, day] = shift /\ shift_of[worker, day + 1] != shift)(
-      shift_length_until[worker, day, shift]
+      shift_length_cyclic[worker, day, shift]
     ) + slack_shifts_min[worker, shift] >= max_min_lengths[shift, 1]
   else
     true
@@ -222,7 +265,7 @@ constraint forall(worker in workers, shift in 0..s)(
 
 constraint forall(worker in workers, shift in 0..s)(
   if shift_of[worker, d] = shift /\ (not cyclic \/ next_slot_shift(worker, d) != shift) then
-    shift_length_until[worker, d, shift] + slack_shifts_min[worker, shift] >= max_min_lengths[shift, 1]
+    shift_length_cyclic[worker, d, shift] + slack_shifts_min[worker, shift] >= max_min_lengths[shift, 1]
   endif
 );
 

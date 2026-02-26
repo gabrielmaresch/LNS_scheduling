@@ -192,8 +192,12 @@ class RWS:
                 for run_days in off_runs:
                     if not run_days:
                         continue
-                    continues = self._run_continues_in_next_worker(worker, run_days, lambda s: s == 0)
                     run_len = len(run_days)
+                    if run_days[0] == 0 and inst.cyclicity:
+                        prev_worker = self._prev_worker(worker)
+                        carry_len = self._tail_run_length(prev_worker, lambda s: s == 0)
+                        run_len = min(inst.num_days, run_len + carry_len)
+                    continues = self._run_continues_in_next_worker(worker, run_days, lambda s: s == 0)
                     if (not continues and run_len < inst.min_consecutive_off) or run_len > inst.max_consecutive_off:
                         _mark(worker, run_days[0])
 
@@ -204,12 +208,16 @@ class RWS:
                     for run_days in shift_runs:
                         if not run_days:
                             continue
+                        run_len = len(run_days)
+                        if run_days[0] == 0 and inst.cyclicity:
+                            prev_worker = self._prev_worker(worker)
+                            carry_len = self._tail_run_length(prev_worker, lambda s, sid=shift_id: s == sid)
+                            run_len = min(inst.num_days, run_len + carry_len)
                         continues = self._run_continues_in_next_worker(
                             worker,
                             run_days,
                             lambda s, sid=shift_id: s == sid,
                         )
-                        run_len = len(run_days)
                         if (not continues and run_len < min_shift) or run_len > max_shift:
                             _mark(worker, run_days[0])
 
@@ -301,6 +309,10 @@ class RWS:
                     if not run_days:
                         continue
                     run_len = len(run_days)
+                    if run_days[0] == 0 and inst.cyclicity:
+                        prev_worker = self._prev_worker(worker_id)
+                        carry_len = self._tail_run_length(prev_worker, lambda shift: shift == 0)
+                        run_len = min(n_days, run_len + carry_len)
                     continues = self._run_continues_in_next_worker(worker_id, run_days, lambda shift: shift == 0)
                     if not continues and run_len < inst.min_consecutive_off:
                         for day_id in run_days:
@@ -320,6 +332,13 @@ class RWS:
                         if not run_days:
                             continue
                         run_len = len(run_days)
+                        if run_days[0] == 0 and inst.cyclicity:
+                            prev_worker = self._prev_worker(worker_id)
+                            carry_len = self._tail_run_length(
+                                prev_worker,
+                                lambda shift, sid=shift_id: shift == sid,
+                            )
+                            run_len = min(n_days, run_len + carry_len)
                         continues = self._run_continues_in_next_worker(
                             worker_id,
                             run_days,
@@ -332,10 +351,33 @@ class RWS:
                             for day_id in run_days:
                                 _mark(worker_id, day_id, f"max_consecutive_shift_{shift_id}")
 
-            for day_id, mismatch in self.day_shift_requirement_violation_counts().items():
-                if mismatch > 0:
-                    for worker_id in range(n_workers):
-                        _mark(worker_id, day_id, "day_shift_requirement")
+            for shift_id, req_count in inst.required_number_of_shifts.items():
+                if isinstance(req_count, int):
+                    required_per_day = [req_count] * n_days
+                else:
+                    required_per_day = list(req_count)
+                shift_name = inst.shift_names[shift_id]
+                for day_id, required in enumerate(required_per_day):
+                    actual_workers = [
+                        worker_id
+                        for worker_id in range(n_workers)
+                        if self.assignment[day_id][worker_id] == shift_id
+                    ]
+                    delta = len(actual_workers) - required
+                    if delta > 0:
+                        violation_type = f"shift_req_over_{shift_name}_by_{delta}"
+                        for worker_id in actual_workers:
+                            _mark(worker_id, day_id, violation_type)
+                    elif delta < 0:
+                        anchor_worker = next(
+                            (
+                                worker_id
+                                for worker_id in range(n_workers)
+                                if self.assignment[day_id][worker_id] == 0
+                            ),
+                            0,
+                        )
+                        _mark(anchor_worker, day_id, f"shift_req_under_{shift_name}_by_{-delta}")
 
             for offset in range(total_cells):
                 idx = (start_idx + offset) % total_cells
