@@ -87,7 +87,7 @@ class MBandit:
     number_of_consecutive_explorations: int = 2
     destroy_exploration_operator: Callable[[rws_lns], list[tuple[int, int]]] = field(init=False, repr=False)
     solver_name: str = "chuffed"
-    exploratory_timeout_seconds: float = 100
+    exploratory_timeout_seconds: float = 50
     repair_exploration_operator: Callable[[rws_lns], None] = field(init=False, repr=False)
     exploration_steps_remaining: int = field(init=False, default=0)
     next_exploration_trigger: int = field(init=False, default=0)
@@ -1054,7 +1054,7 @@ if __name__ == "__main__":
         destroy_operators=destroy_ops,
         repair_operators=repair_ops,
         global_timeout_seconds=1000,
-        minizinc_timeout_seconds=100
+        minizinc_timeout_seconds=60
 
     )
     for name in (
@@ -1083,8 +1083,11 @@ if __name__ == "__main__":
     last_iteration = 0
     log_lines: list[str] = []
     instance_name = instance_path.stem
-    log_lines.append(f"Loaded instance: {instance_name}")
+    log_lines.append(f"Loaded instance: {instance_path.name}")
     log_lines.append(f"instance={instance_name}")
+    log_lines.append(f"instance_name={instance_name}")
+    log_lines.append(f"instance_file={instance_path.name}")
+    log_lines.append(f"instance_path={instance_path}")
     log_lines.append("")
     ANSI_GREEN = "\033[32m"
     ANSI_PURPLE = "\033[35m"
@@ -1187,10 +1190,15 @@ if __name__ == "__main__":
             break
 
     total_runtime = perf_counter() - loop_start
-    log_path = base / "logs" / "multiarm_bandit.log"
-    with log_path.open("w", encoding="utf-8") as handle:
-        if log_lines:
-            handle.write("\n".join(log_lines) + "\n")
+    log_dir = base / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_text = "\n".join(log_lines) + ("\n" if log_lines else "")
+
+    # Keep canonical path for analytics defaults, and write instance-scoped copy.
+    log_path = log_dir / "multiarm_bandit.log"
+    log_path.write_text(log_text, encoding="utf-8")
+    instance_log_path = log_dir / f"multiarm_bandit_{instance_name}.log"
+    instance_log_path.write_text(log_text, encoding="utf-8")
 
     if solved:
         print(

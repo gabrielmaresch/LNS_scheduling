@@ -1,12 +1,18 @@
 from __future__ import annotations
+import os
 import random
 import math
 import json
+import tempfile
 from dataclasses import dataclass
 from typing import Dict, Callable
 from pathlib import Path
 from collections import deque
 import numpy as np
+
+# Avoid torch._dynamo import overhead/hangs when creating optimizers.
+os.environ.setdefault("TORCH_DISABLE_DYNAMO", "1")
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -147,6 +153,9 @@ class drl_alns:
     low_conflict_improvement_bonus: float = 3.0
     near_feasible_solve_bonus: float = 5.0
     last_violation_bonus: float = 25.0
+    equal_move_allowed_freezeout: int = 15
+    late_phase_weight: int = 100000
+    late_phase_strict_improvement: bool = True
 
     def __post_init__(self):
         self.lns = rws_lns(
@@ -155,8 +164,8 @@ class drl_alns:
         )
         self.destroy_names = list(self.destroy_operators.keys())
         self.repair_names = list(self.repair_operators.keys())
-        # State vector: 7 features (adds objective-distance-to-feasibility).
-        self.state_dim = 7
+        # State vector: 8 features (incl. phase flag).
+        self.state_dim = 8
         # ActorCritic now expects n_severity=10, n_temp=50 by default
         self.model = ActorCritic(
             self.state_dim,
@@ -229,9 +238,9 @@ class drl_alns:
 
     # --------------------------------------------------------
     def _get_state(self):
-        """Return 7-element state vector:
+        """Return 8-element state vector:
         [best_improved, current_accepted, current_improved, is_current_best,
-         cost_diff_best, stagnation_count, objective_gap_to_zero]
+         cost_diff_best, stagnation_count, objective_gap_to_zero, is_latephase]
         """
         # best_improved: whether best improved in last step
         best_improved = float(self.prev_best)
@@ -254,6 +263,10 @@ class drl_alns:
             objective_gap_to_zero = 1.0
         else:
             objective_gap_to_zero = math.log1p(max(0.0, self.current_objective))
+        is_latephase = float(
+            math.isfinite(self.current_objective)
+            and self.current_objective <= float(self.equal_move_allowed_freezeout)
+        )
 
         return np.array([
             best_improved,
@@ -263,6 +276,7 @@ class drl_alns:
             cost_diff_best,
             stagnation_count,
             objective_gap_to_zero,
+            is_latephase,
         ], dtype=np.float32)
 
     # ========== NEW: TABU & EXPLORATION METHODS ==========
@@ -357,6 +371,20 @@ class drl_alns:
         self.lns.contender = None
         self.lns._initialize_fixed_vars()  # ← CRITICAL: populate fixed_vars from incumbent
         self.lns.destroyed_pairs = []
+        old_obj = self.current_objective
+        has_old_obj = math.isfinite(old_obj)
+        early_phase = (not has_old_obj) or (
+            old_obj > float(self.equal_move_allowed_freezeout)
+        )
+        self.lns._late_phase = not early_phase
+        self.lns._late_phase_weight = int(self.late_phase_weight)
+        self.lns._late_phase_strict_improvement = bool(
+            self.late_phase_strict_improvement and (not early_phase)
+        )
+        self.lns._incumbent_legacy_objective = (
+            int(max(0.0, old_obj)) if has_old_obj else 10**9
+        )
+        self.lns._repair_timeout_multiplier = 1.0 if early_phase else 2.0
         
         # Convert bins to actual values
         severity = (float(a_sev_bin) + 1.0) / 10.0
@@ -465,14 +493,18 @@ class drl_alns:
                 "stagnation": self.stagnation,
             }
         new_obj = float(contender_objective_raw)
-        old_obj = self.current_objective
-        has_old_obj = math.isfinite(old_obj)
         delta = new_obj - old_obj if has_old_obj else float("-inf")
         
         # Simulated annealing acceptance
         accepted = False
         acceptance_prob = 0.0
-        if (not has_old_obj) or delta <= 0:
+        if not has_old_obj:
+            accepted = True
+            acceptance_prob = 1.0
+        elif not early_phase:
+            accepted = new_obj < old_obj
+            acceptance_prob = 1.0 if accepted else 0.0
+        elif delta <= 0:
             accepted = True
             acceptance_prob = 1.0
         else:
@@ -846,8 +878,7 @@ class drl_alns:
                 if checkpoint_path is not None
                 else Path(__file__).resolve().parent / "PPO_checkpoints" / f"drl_ppo_checkpoint_{total_steps}.pt"
             )
-            checkpoint.parent.mkdir(parents=True, exist_ok=True)
-            torch.save(
+            _safe_torch_save(
                 {
                     "model_state_dict": self.model.state_dict(),
                     "optimizer_state_dict": self.optimizer.state_dict(),
@@ -856,6 +887,10 @@ class drl_alns:
                     "state_dim": self.state_dim,
                     "best_objective": self.best_objective,
                     "current_objective": self.current_objective,
+                    "total_steps": total_steps,
+                    "equal_move_allowed_freezeout": self.equal_move_allowed_freezeout,
+                    "late_phase_weight": self.late_phase_weight,
+                    "late_phase_strict_improvement": self.late_phase_strict_improvement,
                 },
                 checkpoint,
             )
@@ -981,8 +1016,93 @@ def _json_safe(value):
     return value
 
 
+def _safe_torch_save(payload: dict, path: Path) -> None:
+    """Atomically persist checkpoint payload to disk."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="wb",
+        dir=str(path.parent),
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as tmp:
+        tmp_path = Path(tmp.name)
+        torch.save(payload, tmp)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+    os.replace(tmp_path, path)
+
+
+def _cumulative_reward_series(log) -> np.ndarray:
+    rewards = log.get("reward", [])
+    if rewards:
+        return np.cumsum(np.array(rewards, dtype=np.float64))
+    return np.array(
+        log.get("cumulative_rewards", log.get("cumulative_reward", [])),
+        dtype=np.float64,
+    )
+
+
+def analyze_reward_trend(log) -> dict:
+    """Classify cumulative reward shape from early vs late slope."""
+    cumulative = _cumulative_reward_series(log)
+    if cumulative.size < 10:
+        return {
+            "label": "insufficient_data",
+            "early_slope": None,
+            "late_slope": None,
+            "slope_ratio": None,
+            "num_steps": int(cumulative.size),
+        }
+
+    increments = np.diff(cumulative)
+    if increments.size == 0:
+        return {
+            "label": "flat",
+            "early_slope": 0.0,
+            "late_slope": 0.0,
+            "slope_ratio": None,
+            "num_steps": int(cumulative.size),
+        }
+
+    seg = max(5, increments.size // 5)
+    seg = min(seg, increments.size)
+    early = float(np.mean(increments[:seg]))
+    late = float(np.mean(increments[-seg:]))
+
+    eps = 1e-9
+    ratio = None
+    if abs(early) > eps:
+        ratio = late / early
+
+    if abs(early) <= eps and abs(late) <= eps:
+        label = "flat"
+    elif early > eps and late < -eps:
+        label = "degrading"
+    elif early > eps:
+        if ratio is None or ratio < 0.35:
+            label = "saturating"
+        elif ratio < 0.85:
+            label = "sublinear"
+        else:
+            label = "near_linear"
+    elif early < -eps < late:
+        label = "recovering"
+    else:
+        label = "volatile"
+
+    return {
+        "label": label,
+        "early_slope": early,
+        "late_slope": late,
+        "slope_ratio": ratio,
+        "num_steps": int(cumulative.size),
+    }
+
+
 def write_training_log(log, output_path: Path) -> None:
     """Persist training-series data used by DRL plotting."""
+    reward_trend = analyze_reward_trend(log)
     payload = _json_safe(
         {
             "rollout_length": log.get("rollout_length"),
@@ -996,6 +1116,7 @@ def write_training_log(log, output_path: Path) -> None:
             "stagnation": log.get("stagnation", []),
             "reward": log.get("reward", []),
             "cumulative_rewards": log.get("cumulative_rewards", []),
+            "reward_trend": reward_trend,
         }
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1004,48 +1125,76 @@ def write_training_log(log, output_path: Path) -> None:
 
 
 def plot_cumulative_reward(log, show: bool = False, output_path: Path | None = None):
-    """Plot cumulative reward normalized to 0..100%."""
+    """Plot raw cumulative reward and step-reward slope diagnostics."""
     import matplotlib.pyplot as plt
 
-    plt.figure(figsize=(12, 4.5))
-    rewards = log.get("reward", [])
-    if rewards:
-        cumulative = np.cumsum(np.array(rewards, dtype=np.float64))
-    else:
-        cumulative = np.array(
-            log.get("cumulative_rewards", log.get("cumulative_reward", [])),
-            dtype=np.float64,
-        )
+    plt.figure(figsize=(13, 4.8))
+    cumulative = _cumulative_reward_series(log)
+    trend = analyze_reward_trend(log)
 
     if cumulative.size > 0:
-        cmin = float(np.min(cumulative))
-        cmax = float(np.max(cumulative))
-        if cmax > cmin:
-            normalized = (cumulative - cmin) / (cmax - cmin) * 100.0
-        else:
-            normalized = np.full_like(cumulative, 100.0)
-        steps = np.arange(1, len(normalized) + 1)
+        steps = np.arange(1, len(cumulative) + 1)
+        plt.subplot(1, 2, 1)
         plt.plot(
             steps,
-            normalized,
+            cumulative,
             color="tab:blue",
             linewidth=2.0,
-            label="Cumulative reward (normalized)",
+            label="Cumulative reward (raw)",
+        )
+        k_cum = max(5, len(cumulative) // 20)
+        smoothed_cum = _smooth(cumulative, k_cum)
+        if len(smoothed_cum) == len(cumulative):
+            smooth_x = steps
+        else:
+            smooth_x = np.arange(k_cum, k_cum + len(smoothed_cum))
+        plt.plot(smooth_x, smoothed_cum, color="tab:cyan", linewidth=2.0, label=f"Smoothed (k={k_cum})")
+        plt.xlabel("Step")
+        plt.ylabel("Cumulative reward")
+        plt.title("Cumulative Reward (Raw)")
+        plt.legend()
+
+        plt.subplot(1, 2, 2)
+        increments = np.diff(np.concatenate(([0.0], cumulative)))
+        k_inc = max(5, len(increments) // 20)
+        smoothed_inc = _smooth(increments, k_inc)
+        plt.plot(steps, increments, alpha=0.25, color="tab:gray", label="Step reward")
+        if len(smoothed_inc) == len(increments):
+            slope_x = steps
+        else:
+            slope_x = np.arange(k_inc, k_inc + len(smoothed_inc))
+        plt.plot(slope_x, smoothed_inc, color="tab:green", linewidth=2.0, label=f"Moving avg (k={k_inc})")
+        plt.axhline(y=0.0, color="tab:red", linestyle="--", alpha=0.5)
+        ratio = trend.get("slope_ratio")
+        ratio_txt = "n/a" if ratio is None else f"{ratio:.3f}"
+        plt.text(
+            0.02,
+            0.96,
+            (
+                f"trend={trend.get('label')}\n"
+                f"early_slope={trend.get('early_slope')}\n"
+                f"late_slope={trend.get('late_slope')}\n"
+                f"slope_ratio={ratio_txt}"
+            ),
+            transform=plt.gca().transAxes,
+            va="top",
+            ha="left",
+            fontsize=9,
+            bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
         )
         plt.xlabel("Step")
-        plt.ylabel("Cumulative reward (%)")
-        plt.ylim([0, 100])
+        plt.ylabel("Step reward")
+        plt.title("Reward Slope (Saturation Signal)")
         plt.legend()
     else:
-        plt.text(
-            0.5,
-            0.5,
-            "No reward data available",
-            ha="center",
-            va="center",
-            transform=plt.gca().transAxes,
-        )
-    plt.title("Cumulative Reward Across Training (Normalized)")
+        plt.subplot(1, 2, 1)
+        plt.text(0.5, 0.5, "No reward data available", ha="center", va="center", transform=plt.gca().transAxes)
+        plt.subplot(1, 2, 2)
+        plt.text(0.5, 0.5, "No reward data available", ha="center", va="center", transform=plt.gca().transAxes)
+
+    plt.subplot(1, 2, 1)
+    plt.grid(True, alpha=0.3)
+    plt.subplot(1, 2, 2)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     if output_path is not None:

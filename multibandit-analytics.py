@@ -20,6 +20,14 @@ import matplotlib.pyplot as plt
 
 
 ITER_RE = re.compile(r"(\w+)=([^\s]+)")
+LATE_PHASE_FREEZEOUT = 15
+LATE_PHASE_EXCLUDED_DESTROY = {
+    "destroy_random_workers_20pct",
+    "destroy_random_days_20pct",
+    "destroy_random_window_20pct",
+    "destroy_worst_workers_30pct",
+    "destroy_worst_days_30pct",
+}
 
 
 @dataclass
@@ -253,7 +261,7 @@ def plot_analytics(
             decay=decay,
             min_temp=min_temp,
         )
-        temperature_label = "Temperature (reconstructed)"
+        temperature_label = "Temperature"
 
     destroy_update_iters, destroy_operators, destroy_bars = _build_weight_update_bars(
         destroy_updates
@@ -300,6 +308,46 @@ def plot_analytics(
         )
     ax_v.set_ylabel("Objective")
     ax_v.grid(alpha=0.25)
+    late_phase_start_iter = next(
+        (
+            record.iteration
+            for record in records if record.incumbent_objective is not None
+            and record.incumbent_objective <= LATE_PHASE_FREEZEOUT
+        ),
+        None,
+    )
+    if late_phase_start_iter is not None:
+        late_phase_start_x = late_phase_start_iter - 0.5
+        ax_v.axvspan(
+            late_phase_start_x,
+            iterations[-1] + 0.5,
+            color="tab:blue",
+            alpha=0.10,
+            zorder=0,
+            label="Late phase",
+        )
+        ax_v.axvline(
+            late_phase_start_x,
+            color="tab:blue",
+            linestyle=":",
+            linewidth=1.2,
+            alpha=0.8,
+        )
+        for idx, update_iter in enumerate(destroy_update_iters):
+            if update_iter < late_phase_start_iter:
+                continue
+            total = sum(
+                destroy_bars[name][idx]
+                for name in destroy_operators
+                if name not in LATE_PHASE_EXCLUDED_DESTROY
+            )
+            if total <= 0:
+                continue
+            for name in destroy_operators:
+                if name in LATE_PHASE_EXCLUDED_DESTROY:
+                    destroy_bars[name][idx] = 0.0
+                else:
+                    destroy_bars[name][idx] /= total
 
     ax_rt = ax_v.twinx()
     ax_rt.bar(
@@ -375,13 +423,28 @@ def plot_analytics(
         ax_dw.set_xlim(-0.5, len(positions) - 0.5)
         ax_dw.set_xticks(positions)
         ax_dw.set_xticklabels([str(it) for it in destroy_update_iters])
-        ax_dw.legend(
+        legend = ax_dw.legend(
             ncol=1,
             fontsize=8,
             loc="upper left",
             bbox_to_anchor=(1.02, 1.0),
             borderaxespad=0.0,
         )
+        if late_phase_start_iter is not None:
+            late_used = {
+                name
+                for name in destroy_operators
+                if name not in LATE_PHASE_EXCLUDED_DESTROY
+            }
+            target_len = max((len(text.get_text()) for text in legend.get_texts()), default=0)
+            for text in legend.get_texts():
+                label = text.get_text()
+                if label in late_used:
+                    text.set_fontfamily("monospace")
+                    text.set_text(label.ljust(target_len))
+                    text.set_bbox(
+                        dict(facecolor="tab:blue", alpha=0.10, edgecolor="none", pad=1.2)
+                    )
         if not _bars_have_variation(destroy_operators, destroy_bars):
             ax_dw.text(
                 0.01,
