@@ -1,0 +1,6 @@
+seed_index,seed,status,runtime_seconds,timeout_seconds,max_iterations,executed_steps,best_objective,current_objective,checkpoint,train_instances,test_instances,error
+1,0,timeout,2518.1486291000037,2500.0,1000,734,25.0,25.0,checkpoint_seed0.pt,"Example0,Example1,Example2,Example3,Example4,Example5,Example7,Example8,Example9,Example10,Example11,Example14","Example6,Example12,Example13",
+2,1,timeout,2508.4928110000037,2500.0,1000,776,12.0,12.0,checkpoint_seed1.pt,"Example0,Example1,Example3,Example4,Example5,Example6,Example7,Example8,Example10,Example11,Example13,Example14","Example2,Example9,Example12",
+3,2,timeout,2511.027678899991,2500.0,1000,703,25.0,25.0,checkpoint_seed2.pt,"Example1,Example2,Example3,Example4,Example5,Example6,Example7,Example8,Example9,Example10,Example11,Example12","Example0,Example13,Example14",
+4,3,timeout,2509.4746042999905,2500.0,1000,774,32.0,32.0,checkpoint_seed3.pt,"Example0,Example1,Example2,Example4,Example5,Example6,Example7,Example10,Example11,Example12,Example13,Example14","Example3,Example8,Example9",
+5,4,timeout,2503.8605108000047,2500.0,1000,833,24.0,24.0,checkpoint_seed4.pt,"Example0,Example2,Example5,Example6,Example7,Example8,Example9,Example10,Example11,Example12,Example13,Example14","Example1,Example3,Example4",
