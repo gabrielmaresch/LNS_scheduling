@@ -246,6 +246,7 @@ def main() -> None:
                                 example_number=instance_index,
                                 checkpoint_path=checkpoint_path,
                                 timeout_seconds=timeout_seconds,
+                                show_final_schedule=False,
                             )
                     except Exception as exc:
                         capture.write(f"run_error={type(exc).__name__}: {exc}\n")
