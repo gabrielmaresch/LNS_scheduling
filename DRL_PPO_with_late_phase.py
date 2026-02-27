@@ -4,6 +4,7 @@ import random
 import math
 import json
 import tempfile
+import re
 from dataclasses import dataclass
 from typing import Dict, Callable
 from pathlib import Path
@@ -154,7 +155,7 @@ class drl_alns:
     near_feasible_solve_bonus: float = 5.0
     last_violation_bonus: float = 25.0
     equal_move_allowed_freezeout: int = 15
-    late_phase_weight: int = 100000
+    late_phase_weight: int = 10000
     late_phase_strict_improvement: bool = True
 
     def __post_init__(self):
@@ -655,12 +656,15 @@ class drl_alns:
         total_steps: int = 2000,
         instance_paths: list[Path] = (),
         per_instance_cap: int = 500,
+        timeout_seconds: float | None = None,
         checkpoint_path: str | Path | None = None,
     ):
         if total_steps <= 0:
             raise ValueError("total_steps must be > 0")
         if per_instance_cap <= 0:
             raise ValueError("per_instance_cap must be > 0")
+        if timeout_seconds is not None and timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be > 0 when provided")
         training_paths = list(instance_paths)
         if not training_paths:
             raise ValueError("instance_paths must not be empty")
@@ -718,6 +722,12 @@ class drl_alns:
                         and self.best_objective > 0.0
                         and self.stagnation < 20
                     ):
+                        if timeout_seconds is not None and (perf_counter() - loop_start) >= timeout_seconds:
+                            print(
+                                f"training_stop=timeout elapsed={perf_counter() - loop_start:.3f}s "
+                                f"timeout_seconds={timeout_seconds}"
+                            )
+                            break
                         rollout_steps = min(
                             self.rollout_length,
                             per_instance_cap - instance_steps,
@@ -740,6 +750,13 @@ class drl_alns:
                             next_state, reward, step_info = self.step(a_d, a_r, a_sev, a_temp, cumulative_reward)
                             step_runtime = perf_counter() - step_start
                             elapsed_total = perf_counter() - loop_start
+                            if timeout_seconds is not None and elapsed_total >= timeout_seconds:
+                                print(
+                                    f"training_stop=timeout elapsed={elapsed_total:.3f}s "
+                                    f"timeout_seconds={timeout_seconds}"
+                                )
+                                global_steps = total_steps
+                                break
 
                             if step_info["accepted"]:
                                 accepted_count += 1
@@ -786,6 +803,8 @@ class drl_alns:
                             global_steps += 1
                             instance_steps += 1
 
+                        if timeout_seconds is not None and (perf_counter() - loop_start) >= timeout_seconds:
+                            break
                         episode_return = sum(rewards)
                         acceptance_rate = accepted_count / max(1, rollout_steps) * 100
 
@@ -854,9 +873,13 @@ class drl_alns:
                             entropy=ent,
                             stagnation=self.stagnation
                         )
+                    if timeout_seconds is not None and (perf_counter() - loop_start) >= timeout_seconds:
+                        break
 
                     if self.best_objective <= 0.0:
                         print("instance_result=solved reason=objective_zero")
+                if timeout_seconds is not None and (perf_counter() - loop_start) >= timeout_seconds:
+                    break
 
         except KeyboardInterrupt:
             print("\n" + "!"*150)
@@ -1004,6 +1027,13 @@ def _smooth(x, k=30):
         return x
     import numpy as np
     return np.convolve(x, np.ones(k)/k, mode="valid")
+
+
+def _instance_sort_key(path: Path) -> tuple[int, str]:
+    match = re.search(r"(\d+)$", path.stem)
+    if match:
+        return (int(match.group(1)), path.stem)
+    return (10**9, path.stem)
 
 
 def _json_safe(value):
@@ -1325,7 +1355,10 @@ def plot_training(log, show: bool = False, output_path: Path | None = None):
 # ============================================================
 if __name__ == "__main__":
     base = Path(__file__).resolve().parent
-    instance_paths = sorted((base / "Instances1-50").glob("Example*.txt"))
+    instance_paths = sorted(
+        (base / "Instances1-50").glob("Example*.txt"),
+        key=_instance_sort_key,
+    )
     if not instance_paths:
         raise FileNotFoundError("no instance files found in Instances1-50")
     instance_path = instance_paths[0]

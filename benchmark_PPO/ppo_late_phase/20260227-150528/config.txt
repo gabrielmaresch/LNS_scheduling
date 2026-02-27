@@ -1,0 +1,9 @@
+run_id=20260227-150528
+variant=ppo_late_phase
+n_instances=5
+train_count=4
+test_count=1
+n_seeds=2
+timeout_seconds=90.0
+max_iterations=100
+pool_instances=Example0,Example1,Example2,Example3,Example4

@@ -11,6 +11,31 @@ if TYPE_CHECKING:
     from rws import rws_lns
 
 
+def _safe_late_phase_weight(lns: "rws_lns", requested_weight: int) -> int:
+    """Clamp late-phase weight to avoid 32-bit overflow in flattened objective."""
+    inst = lns.instance
+    num_days = int(inst.num_days)
+    num_workers = int(inst.num_workers)
+    num_shifts = int(len(inst.shift_names) - 1)
+    horizon = num_days * num_workers
+    num_forbidden = int(len(inst.forbidden_sequences))
+
+    # Conservative upper bound of late_phase_primary_objective terms in rws_generic.mzn.
+    # primary = worker slacks + required-worker slacks + forbidden slack total.
+    primary_upper_bound = (
+        4 * num_workers * horizon
+        + 2 * num_days * max(0, num_shifts) * num_workers
+        + num_forbidden * num_workers * num_days
+    )
+    primary_upper_bound = max(1, int(primary_upper_bound))
+
+    # Keep strict margin below 32-bit signed limit used by FlatZinc backends.
+    int32_safe_limit = 2_000_000_000
+    max_safe_weight = max(1, int32_safe_limit // primary_upper_bound)
+    requested = max(1, int(requested_weight))
+    return min(requested, max_safe_weight)
+
+
 def _model_params_from_lns(lns: "rws_lns") -> Dict[str, Any]:
     """Build all required MiniZinc input parameters from an rws_lns object."""
     inst = lns.instance
@@ -20,6 +45,8 @@ def _model_params_from_lns(lns: "rws_lns") -> Dict[str, Any]:
     except (TypeError, ValueError):
         incumbent = float(10**9)
     incumbent_int = int(max(0.0, incumbent)) if math.isfinite(incumbent) else 10**9
+    requested_late_phase_weight = int(getattr(lns, "_late_phase_weight", 10000))
+    late_phase_weight = _safe_late_phase_weight(lns, requested_late_phase_weight)
     return {
         "d": inst.num_days,
         "n": inst.num_workers,
@@ -30,7 +57,7 @@ def _model_params_from_lns(lns: "rws_lns") -> Dict[str, Any]:
         "min_work": inst.min_consecutive_work,
         "max_work": inst.max_consecutive_work,
         "late_phase": bool(getattr(lns, "_late_phase", False)),
-        "late_phase_weight": int(getattr(lns, "_late_phase_weight", 100000)),
+        "late_phase_weight": late_phase_weight,
         "late_phase_strict_improvement": bool(
             getattr(lns, "_late_phase_strict_improvement", False)
         ),

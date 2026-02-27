@@ -1,0 +1,6 @@
+run_id=20260227-144702
+variant=alns_plain
+n_instances=3
+n_seeds=2
+timeout_seconds=15.0
+solver_setup=mixed(chuffed+gecode) [matches multiarm_bandit main]

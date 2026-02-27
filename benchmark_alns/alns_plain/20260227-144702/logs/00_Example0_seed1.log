@@ -1,0 +1,22 @@
+Loaded instance: Example0.txt
+instance=Example0
+instance_name=Example0
+instance_file=Example0.txt
+instance_path=/Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/Instances1-50/Example0.txt
+variant=alns_plain
+seed=1
+
+iter=1 elapsed=1.198s step_runtime=1.198s destroy=destroy_random_window_20pct repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=inf contender_objective=7.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_random_window_20pct: destroyed window: [3, 4, 5, 6] x [3, 4, 5]
+iter=2 elapsed=2.089s step_runtime=0.891s destroy=destroy_random_workers_20pct repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=7.0 contender_objective=5.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_random_workers_20pct: destroyed workers: [0, 3]
+iter=3 elapsed=2.748s step_runtime=0.659s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=1 accepted=True repair_failed=False used_exploration=False stagnation_rounds=1 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=9 start=(w0,d3) end=(w1,d4); destroyed_inside=9
+iter=4 elapsed=3.843s step_runtime=1.095s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=3.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=15 start=(w0,d0) end=(w2,d0); destroyed_inside=15
+iter=5 elapsed=4.457s step_runtime=0.614s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=3.0 contender_objective=3.0 score=1 accepted=True repair_failed=False used_exploration=False stagnation_rounds=1 weights_updated=False
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=4
+iter=6 elapsed=7.989s step_runtime=3.532s destroy=destroy_worst_days_30pct repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=3.0 contender_objective=19.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=2 weights_updated=False
+  destroyed=destroy_worst_days_30pct: destroyed days: [1, 4, 5]
+iter=7 elapsed=23.412s step_runtime=15.423s destroy=destroy_worst_days_30pct repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=3.0 contender_objective=11.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=3 weights_updated=False
+  destroyed=destroy_worst_days_30pct: destroyed days: [1, 3, 4]

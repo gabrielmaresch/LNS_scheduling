@@ -1,0 +1,3 @@
+seed_index,seed,status,runtime_seconds,timeout_seconds,max_iterations,executed_steps,best_objective,current_objective,checkpoint,train_instances,test_instances,error
+1,0,timeout,97.78666711898404,90.0,100,43,9.0,9.0,checkpoint_seed0.pt,"Example0,Example1,Example2,Example4",Example3,
+2,1,timeout,91.90484980301699,90.0,100,58,0.0,0.0,checkpoint_seed1.pt,"Example0,Example2,Example3,Example4",Example1,

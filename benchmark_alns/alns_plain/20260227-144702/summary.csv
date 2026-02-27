@@ -1,0 +1,7 @@
+variant,instance,instance_index,seed,timeout_seconds,status,objective,runtime_seconds,iterations,solved,timeout_hit,error,solver_name
+alns_plain,Example0,0,0,15.0,timeout,3.0,24.87000157998409,9,False,True,,mixed(chuffed+gecode)
+alns_plain,Example0,0,1,15.0,timeout,3.0,23.411894991004374,7,False,True,,mixed(chuffed+gecode)
+alns_plain,Example1,1,0,15.0,timeout,20.0,16.408968256000662,2,False,True,,mixed(chuffed+gecode)
+alns_plain,Example1,1,1,15.0,timeout,8.0,15.142490539001301,11,False,True,,mixed(chuffed+gecode)
+alns_plain,Example2,2,0,15.0,timeout,60.0,16.570649602013873,2,False,True,,mixed(chuffed+gecode)
+alns_plain,Example2,2,1,15.0,timeout,30.0,22.50150525799836,6,False,True,,mixed(chuffed+gecode)

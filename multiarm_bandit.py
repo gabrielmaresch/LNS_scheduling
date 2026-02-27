@@ -58,7 +58,7 @@ class MBandit:
     reaction_factor: float = 0.2
     beta_softmax: float = 1.5
     equal_move_allowed_freezeout: int = 15
-    late_phase_weight: int = 100000
+    late_phase_weight: int = 10000
     late_phase_strict_improvement: bool = True
     
     ##### Simulated annealing for accepting subpar solutions
