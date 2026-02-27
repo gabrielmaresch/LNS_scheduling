@@ -1,7 +1,0 @@
-variant,instance,instance_index,seed,timeout_seconds,status,objective,runtime_seconds,iterations,solved,timeout_hit,error,solver_name
-alns_late_phase,Example0,0,0,15.0,timeout,8.0,17.44775646898779,17,False,True,,mixed(chuffed+gecode)
-alns_late_phase,Example0,0,1,15.0,timeout,5.0,15.028090358973714,19,False,True,,mixed(chuffed+gecode)
-alns_late_phase,Example1,1,0,15.0,timeout,20.0,16.533803113008616,2,False,True,,mixed(chuffed+gecode)
-alns_late_phase,Example1,1,1,15.0,timeout,10.0,19.28841831101454,7,False,True,,mixed(chuffed+gecode)
-alns_late_phase,Example2,2,0,15.0,timeout,61.0,16.59971261199098,2,False,True,,mixed(chuffed+gecode)
-alns_late_phase,Example2,2,1,15.0,timeout,30.0,24.08301359199686,6,False,True,,mixed(chuffed+gecode)

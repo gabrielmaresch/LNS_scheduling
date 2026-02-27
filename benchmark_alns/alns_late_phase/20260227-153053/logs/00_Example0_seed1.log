@@ -1,0 +1,486 @@
+Loaded instance: Example0.txt
+instance=Example0
+instance_name=Example0
+instance_file=Example0.txt
+instance_path=/Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/Instances1-50/Example0.txt
+variant=alns_late_phase
+seed=1
+
+iter=1 elapsed=0.932s step_runtime=0.932s destroy=destroy_random_window_20pct repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=inf contender_objective=7.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_random_window_20pct: destroyed window: [3, 4, 5, 6] x [3, 4, 5]
+iter=2 elapsed=1.559s step_runtime=0.627s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=7.0 contender_objective=5.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=8
+iter=3 elapsed=5.487s step_runtime=3.928s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=1 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=21 start=(w0,d4) end=(w3,d3); destroyed_inside=21
+iter=4 elapsed=6.116s step_runtime=0.629s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=2 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_worst_workers_10pct: destroyed workers: [2]
+iter=5 elapsed=6.671s step_runtime=0.555s destroy=destroy_max_border_shift_3 repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=3 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_3: destroyed max-border shift_3: vars_erased=7
+iter=6 elapsed=7.218s step_runtime=0.546s destroy=destroy_max_border_off repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=4 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_off: destroyed max-border off: vars_erased=17
+iter=7 elapsed=7.735s step_runtime=0.517s destroy=destroy_max_border_shift_3 repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=5 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_3: destroyed max-border shift_3: vars_erased=7
+iter=8 elapsed=8.469s step_runtime=0.735s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=6 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=13 start=(w1,d1) end=(w2,d6); destroyed_inside=13
+iter=9 elapsed=9.044s step_runtime=0.575s destroy=destroy_worst_days_10pct repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=7 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_worst_days_10pct: destroyed days: [4]
+iter=10 elapsed=9.476s step_runtime=0.432s destroy=destroy_max_border_shift_3 repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=8 weights_updated=True
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_3: destroyed max-border shift_3: vars_erased=7
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.07     0.06
+    destroy_worst_workers_30pct            0.07     0.06
+    destroy_random_workers_20pct           0.07     0.06
+    destroy_random_window_20pct            0.07     0.16
+    destroy_all_forbidden_sequences        0.07     0.16
+    destroy_streak_around_worst_worker     0.07     0.06
+    destroy_worst_days_10pct               0.07     0.06
+    destroy_worst_days_30pct               0.07     0.06
+    destroy_random_days_20pct              0.07     0.06
+    destroy_max_border_work                0.07     0.06
+    destroy_max_border_off                 0.07     0.06
+    destroy_max_border_shift_1             0.07     0.06
+    destroy_max_border_shift_2             0.07     0.06
+    destroy_max_border_shift_3             0.07     0.06
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.40     0.51
+    repair_gecode_fast                     0.40     0.32
+    repair_chuffed_long                    0.10     0.08
+    repair_gecode_long                     0.10     0.08
+iter=11 elapsed=9.887s step_runtime=0.411s destroy=destroy_max_border_shift_1 repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=9 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_1: destroyed max-border shift_1: vars_erased=7
+iter=12 elapsed=10.425s step_runtime=0.538s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=10 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=13 elapsed=10.956s step_runtime=0.531s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=11 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [0, 5, 6] x [5, 6]
+iter=14 elapsed=11.502s step_runtime=0.547s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=12 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [1, 2, 3, 4] x [4, 5]
+iter=15 elapsed=11.916s step_runtime=0.414s destroy=destroy_max_border_shift_2 repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=13 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_2: destroyed max-border shift_2: vars_erased=6
+iter=16 elapsed=12.580s step_runtime=0.664s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=14 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=15 start=(w1,d0) end=(w3,d0); destroyed_inside=15
+iter=17 elapsed=13.037s step_runtime=0.458s destroy=destroy_max_border_shift_1 repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=15 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_1: destroyed max-border shift_1: vars_erased=7
+iter=18 elapsed=13.840s step_runtime=0.803s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=16 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=17 start=(w0,d6) end=(w3,d1); destroyed_inside=17
+iter=19 elapsed=14.269s step_runtime=0.429s destroy=destroy_max_border_off repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=17 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_off: destroyed max-border off: vars_erased=11
+iter=20 elapsed=14.717s step_runtime=0.447s destroy=destroy_max_border_shift_2 repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=18 weights_updated=True
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_2: destroyed max-border shift_2: vars_erased=7
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.06     0.07
+    destroy_worst_workers_30pct            0.06     0.07
+    destroy_random_workers_20pct           0.06     0.07
+    destroy_random_window_20pct            0.16     0.15
+    destroy_all_forbidden_sequences        0.16     0.15
+    destroy_streak_around_worst_worker     0.06     0.07
+    destroy_worst_days_10pct               0.06     0.07
+    destroy_worst_days_30pct               0.06     0.07
+    destroy_random_days_20pct              0.06     0.07
+    destroy_max_border_work                0.06     0.05
+    destroy_max_border_off                 0.06     0.05
+    destroy_max_border_shift_1             0.06     0.05
+    destroy_max_border_shift_2             0.06     0.05
+    destroy_max_border_shift_3             0.06     0.05
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.51     0.46
+    repair_gecode_fast                     0.32     0.31
+    repair_chuffed_long                    0.08     0.12
+    repair_gecode_long                     0.08     0.12
+iter=21 elapsed=15.268s step_runtime=0.552s destroy=destroy_worst_days_10pct repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=19 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_worst_days_10pct: destroyed days: [4]
+iter=22 elapsed=15.703s step_runtime=0.435s destroy=destroy_max_border_off repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=20 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_off: destroyed max-border off: vars_erased=11
+iter=23 elapsed=16.290s step_runtime=0.587s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=21 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [0, 1, 2, 3] x [3, 4, 5]
+iter=24 elapsed=16.843s step_runtime=0.553s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=22 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [0, 4, 5, 6] x [0, 6]
+iter=25 elapsed=17.962s step_runtime=1.119s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=23 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=19 start=(w0,d5) end=(w3,d2); destroyed_inside=19
+iter=26 elapsed=18.503s step_runtime=0.542s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=24 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=27 elapsed=19.072s step_runtime=0.568s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=25 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_worst_workers_10pct: destroyed workers: [2]
+iter=28 elapsed=19.505s step_runtime=0.433s destroy=destroy_max_border_shift_3 repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=26 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_3: destroyed max-border shift_3: vars_erased=7
+iter=29 elapsed=20.060s step_runtime=0.555s destroy=destroy_all_forbidden_sequences repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=27 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=30 elapsed=20.491s step_runtime=0.430s destroy=destroy_max_border_off repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=28 weights_updated=True
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_off: destroyed max-border off: vars_erased=7
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.07     0.08
+    destroy_worst_workers_30pct            0.07     0.08
+    destroy_random_workers_20pct           0.07     0.08
+    destroy_random_window_20pct            0.15     0.14
+    destroy_all_forbidden_sequences        0.15     0.14
+    destroy_streak_around_worst_worker     0.07     0.08
+    destroy_worst_days_10pct               0.07     0.08
+    destroy_worst_days_30pct               0.07     0.08
+    destroy_random_days_20pct              0.07     0.08
+    destroy_max_border_work                0.05     0.04
+    destroy_max_border_off                 0.05     0.04
+    destroy_max_border_shift_1             0.05     0.04
+    destroy_max_border_shift_2             0.05     0.04
+    destroy_max_border_shift_3             0.05     0.04
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.46     0.41
+    repair_gecode_fast                     0.31     0.30
+    repair_chuffed_long                    0.12     0.14
+    repair_gecode_long                     0.12     0.14
+iter=31 elapsed=21.049s step_runtime=0.558s destroy=destroy_all_forbidden_sequences repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=29 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=32 elapsed=21.594s step_runtime=0.545s destroy=destroy_worst_workers_10pct repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=30 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_worst_workers_10pct: destroyed workers: [2]
+iter=33 elapsed=22.167s step_runtime=0.573s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=31 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [1, 2, 3, 4] x [2, 3]
+iter=34 elapsed=22.743s step_runtime=0.576s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=32 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [1, 2, 3, 4] x [3, 4]
+iter=35 elapsed=23.158s step_runtime=0.415s destroy=destroy_max_border_work repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=33 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_work: destroyed max-border work: vars_erased=17
+iter=36 elapsed=23.589s step_runtime=0.432s destroy=destroy_max_border_work repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=34 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_work: destroyed max-border work: vars_erased=7
+iter=37 elapsed=24.021s step_runtime=0.431s destroy=destroy_max_border_off repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=35 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_off: destroyed max-border off: vars_erased=6
+iter=38 elapsed=24.563s step_runtime=0.542s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=36 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=39 elapsed=24.994s step_runtime=0.431s destroy=destroy_max_border_off repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=37 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_off: destroyed max-border off: vars_erased=6
+iter=40 elapsed=25.652s step_runtime=0.657s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=38 weights_updated=True
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=15 start=(w1,d0) end=(w3,d0); destroyed_inside=15
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.08     0.08
+    destroy_worst_workers_30pct            0.08     0.08
+    destroy_random_workers_20pct           0.08     0.08
+    destroy_random_window_20pct            0.14     0.13
+    destroy_all_forbidden_sequences        0.14     0.13
+    destroy_streak_around_worst_worker     0.08     0.08
+    destroy_worst_days_10pct               0.08     0.08
+    destroy_worst_days_30pct               0.08     0.08
+    destroy_random_days_20pct              0.08     0.08
+    destroy_max_border_work                0.04     0.03
+    destroy_max_border_off                 0.04     0.03
+    destroy_max_border_shift_1             0.04     0.03
+    destroy_max_border_shift_2             0.04     0.03
+    destroy_max_border_shift_3             0.04     0.03
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.41     0.38
+    repair_gecode_fast                     0.30     0.29
+    repair_chuffed_long                    0.14     0.17
+    repair_gecode_long                     0.14     0.17
+iter=41 elapsed=26.084s step_runtime=0.433s destroy=destroy_max_border_shift_2 repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=39 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_2: destroyed max-border shift_2: vars_erased=6
+iter=42 elapsed=26.616s step_runtime=0.532s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=40 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=43 elapsed=27.161s step_runtime=0.545s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=41 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [5, 6] x [3, 4, 5]
+iter=44 elapsed=27.744s step_runtime=0.584s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=42 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [0, 1, 2, 3] x [0, 5, 6]
+iter=45 elapsed=28.181s step_runtime=0.436s destroy=destroy_max_border_shift_3 repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=43 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_3: destroyed max-border shift_3: vars_erased=7
+iter=46 elapsed=28.820s step_runtime=0.639s destroy=destroy_worst_workers_10pct repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=44 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_worst_workers_10pct: destroyed workers: [2]
+iter=47 elapsed=29.237s step_runtime=0.417s destroy=destroy_max_border_shift_3 repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=45 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_3: destroyed max-border shift_3: vars_erased=7
+iter=48 elapsed=29.665s step_runtime=0.428s destroy=destroy_max_border_off repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=46 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_off: destroyed max-border off: vars_erased=6
+iter=49 elapsed=30.213s step_runtime=0.548s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=47 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=50 elapsed=30.883s step_runtime=0.669s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=48 weights_updated=True
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=15 start=(w1,d0) end=(w3,d0); destroyed_inside=15
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.08     0.09
+    destroy_worst_workers_30pct            0.08     0.09
+    destroy_random_workers_20pct           0.08     0.09
+    destroy_random_window_20pct            0.13     0.13
+    destroy_all_forbidden_sequences        0.13     0.13
+    destroy_streak_around_worst_worker     0.08     0.09
+    destroy_worst_days_10pct               0.08     0.09
+    destroy_worst_days_30pct               0.08     0.09
+    destroy_random_days_20pct              0.08     0.09
+    destroy_max_border_work                0.03     0.03
+    destroy_max_border_off                 0.03     0.03
+    destroy_max_border_shift_1             0.03     0.03
+    destroy_max_border_shift_2             0.03     0.03
+    destroy_max_border_shift_3             0.03     0.03
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.38     0.36
+    repair_gecode_fast                     0.29     0.28
+    repair_chuffed_long                    0.17     0.18
+    repair_gecode_long                     0.17     0.18
+iter=51 elapsed=31.457s step_runtime=0.575s destroy=destroy_worst_days_10pct repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=49 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_worst_days_10pct: destroyed days: [4]
+iter=52 elapsed=32.012s step_runtime=0.555s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=50 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=53 elapsed=32.600s step_runtime=0.588s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=51 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [1, 2, 3] x [2, 3, 4, 5]
+iter=54 elapsed=33.057s step_runtime=0.457s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=52 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [0, 1, 2] x [2, 3]
+iter=55 elapsed=33.816s step_runtime=0.758s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=53 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=17 start=(w0,d6) end=(w3,d1); destroyed_inside=17
+iter=56 elapsed=34.351s step_runtime=0.536s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=54 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=57 elapsed=34.761s step_runtime=0.410s destroy=destroy_max_border_shift_1 repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=55 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_1: destroyed max-border shift_1: vars_erased=7
+iter=58 elapsed=35.294s step_runtime=0.533s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=56 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=59 elapsed=35.829s step_runtime=0.535s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=57 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=60 elapsed=36.372s step_runtime=0.543s destroy=destroy_worst_days_10pct repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=58 weights_updated=True
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_worst_days_10pct: destroyed days: [4]
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.09     0.09
+    destroy_worst_workers_30pct            0.09     0.09
+    destroy_random_workers_20pct           0.09     0.09
+    destroy_random_window_20pct            0.13     0.12
+    destroy_all_forbidden_sequences        0.13     0.12
+    destroy_streak_around_worst_worker     0.09     0.09
+    destroy_worst_days_10pct               0.09     0.09
+    destroy_worst_days_30pct               0.09     0.09
+    destroy_random_days_20pct              0.09     0.09
+    destroy_max_border_work                0.03     0.02
+    destroy_max_border_off                 0.03     0.02
+    destroy_max_border_shift_1             0.03     0.02
+    destroy_max_border_shift_2             0.03     0.02
+    destroy_max_border_shift_3             0.03     0.02
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.36     0.33
+    repair_gecode_fast                     0.28     0.27
+    repair_chuffed_long                    0.18     0.20
+    repair_gecode_long                     0.18     0.20
+iter=61 elapsed=36.925s step_runtime=0.553s destroy=destroy_all_forbidden_sequences repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=59 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=62 elapsed=37.487s step_runtime=0.562s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=60 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_worst_workers_10pct: destroyed workers: [2]
+iter=63 elapsed=38.074s step_runtime=0.587s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=61 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [0, 1, 2] x [0, 1, 5, 6]
+iter=64 elapsed=38.601s step_runtime=0.527s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=62 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [1, 2] x [1, 2]
+iter=65 elapsed=39.041s step_runtime=0.440s destroy=destroy_max_border_shift_2 repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=63 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_2: destroyed max-border shift_2: vars_erased=6
+iter=66 elapsed=39.780s step_runtime=0.739s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=64 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=19 start=(w0,d5) end=(w3,d2); destroyed_inside=19
+iter=67 elapsed=40.448s step_runtime=0.669s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=65 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=15 start=(w1,d0) end=(w3,d0); destroyed_inside=15
+iter=68 elapsed=41.015s step_runtime=0.566s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=66 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_worst_workers_10pct: destroyed workers: [2]
+iter=69 elapsed=41.586s step_runtime=0.572s destroy=destroy_worst_days_10pct repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=67 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_worst_days_10pct: destroyed days: [4]
+iter=70 elapsed=42.121s step_runtime=0.535s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=68 weights_updated=True
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.09     0.09
+    destroy_worst_workers_30pct            0.09     0.09
+    destroy_random_workers_20pct           0.09     0.09
+    destroy_random_window_20pct            0.12     0.12
+    destroy_all_forbidden_sequences        0.12     0.12
+    destroy_streak_around_worst_worker     0.09     0.09
+    destroy_worst_days_10pct               0.09     0.09
+    destroy_worst_days_30pct               0.09     0.09
+    destroy_random_days_20pct              0.09     0.09
+    destroy_max_border_work                0.02     0.02
+    destroy_max_border_off                 0.02     0.02
+    destroy_max_border_shift_1             0.02     0.02
+    destroy_max_border_shift_2             0.02     0.02
+    destroy_max_border_shift_3             0.02     0.02
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.33     0.32
+    repair_gecode_fast                     0.27     0.27
+    repair_chuffed_long                    0.20     0.21
+    repair_gecode_long                     0.20     0.21
+iter=71 elapsed=42.870s step_runtime=0.749s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=69 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=17 start=(w0,d6) end=(w3,d1); destroyed_inside=17
+iter=72 elapsed=43.419s step_runtime=0.549s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=70 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=73 elapsed=43.938s step_runtime=0.519s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=71 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [5, 6] x [5, 6]
+iter=74 elapsed=44.451s step_runtime=0.513s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=True stagnation_rounds=72 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_exploration: destroyed window: [5, 6] x [3, 4]
+iter=75 elapsed=45.013s step_runtime=0.562s destroy=destroy_all_forbidden_sequences repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=73 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=76 elapsed=45.574s step_runtime=0.562s destroy=destroy_worst_days_10pct repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=74 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_worst_days_10pct: destroyed days: [4]
+iter=77 elapsed=46.141s step_runtime=0.567s destroy=destroy_worst_days_10pct repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=75 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_worst_days_10pct: destroyed days: [4]
+iter=78 elapsed=46.569s step_runtime=0.428s destroy=destroy_max_border_shift_1 repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=76 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_max_border_shift_1: destroyed max-border shift_1: vars_erased=6
+iter=79 elapsed=47.109s step_runtime=0.539s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=77 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=80 elapsed=47.721s step_runtime=0.613s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=78 weights_updated=True
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=13 start=(w1,d1) end=(w2,d6); destroyed_inside=13
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.09     0.10
+    destroy_worst_workers_30pct            0.09     0.10
+    destroy_random_workers_20pct           0.09     0.10
+    destroy_random_window_20pct            0.12     0.12
+    destroy_all_forbidden_sequences        0.12     0.12
+    destroy_streak_around_worst_worker     0.09     0.10
+    destroy_worst_days_10pct               0.09     0.10
+    destroy_worst_days_30pct               0.09     0.10
+    destroy_random_days_20pct              0.09     0.10
+    destroy_max_border_work                0.02     0.02
+    destroy_max_border_off                 0.02     0.02
+    destroy_max_border_shift_1             0.02     0.02
+    destroy_max_border_shift_2             0.02     0.02
+    destroy_max_border_shift_3             0.02     0.02
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.32     0.30
+    repair_gecode_fast                     0.27     0.27
+    repair_chuffed_long                    0.21     0.22
+    repair_gecode_long                     0.21     0.22
+iter=81 elapsed=48.259s step_runtime=0.538s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=5.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=79 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=6
+iter=82 elapsed=49.319s step_runtime=1.060s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=5.0 contender_objective=4.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=23 start=(w0,d3) end=(w3,d4); destroyed_inside=23
+iter=83 elapsed=50.327s step_runtime=1.008s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=4.0 contender_objective=3.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=19 start=(w3,d6) end=(w6,d3); destroyed_inside=19
+iter=84 elapsed=80.749s step_runtime=30.422s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=3.0 contender_objective=3.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=1 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNKNOWN
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=27 start=(w3,d2) end=(w0,d0); destroyed_inside=27
+iter=85 elapsed=81.326s step_runtime=0.577s destroy=destroy_worst_days_10pct repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=3.0 contender_objective=3.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=2 weights_updated=False
+  destroyed=destroy_worst_days_10pct: destroyed days: [1]
+iter=86 elapsed=81.870s step_runtime=0.543s destroy=destroy_max_border_shift_2 repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=3.0 contender_objective=3.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=3 weights_updated=False
+  destroyed=destroy_max_border_shift_2: destroyed max-border shift_2: vars_erased=2
+iter=87 elapsed=83.272s step_runtime=1.403s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=3.0 contender_objective=2.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=21 start=(w3,d5) end=(w6,d4); destroyed_inside=21
+iter=88 elapsed=83.776s step_runtime=0.504s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=1 weights_updated=False
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=2
+iter=89 elapsed=84.312s step_runtime=0.536s destroy=destroy_all_forbidden_sequences repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=2 weights_updated=False
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=2
+iter=90 elapsed=85.130s step_runtime=0.818s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=1.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=True
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=23 start=(w2,d5) end=(w5,d6); destroyed_inside=23
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.10     0.08
+    destroy_worst_workers_30pct            0.10     0.08
+    destroy_random_workers_20pct           0.10     0.08
+    destroy_random_window_20pct            0.12     0.10
+    destroy_all_forbidden_sequences        0.12     0.10
+    destroy_streak_around_worst_worker     0.10     0.27
+    destroy_worst_days_10pct               0.10     0.08
+    destroy_worst_days_30pct               0.10     0.08
+    destroy_random_days_20pct              0.10     0.08
+    destroy_max_border_work                0.02     0.01
+    destroy_max_border_off                 0.02     0.01
+    destroy_max_border_shift_1             0.02     0.01
+    destroy_max_border_shift_2             0.02     0.01
+    destroy_max_border_shift_3             0.02     0.01
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.30     0.25
+    repair_gecode_fast                     0.27     0.21
+    repair_chuffed_long                    0.22     0.37
+    repair_gecode_long                     0.22     0.17
+iter=91 elapsed=85.780s step_runtime=0.650s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=1.0 contender_objective=0.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=15 start=(w6,d0) end=(w1,d0); destroyed_inside=15
