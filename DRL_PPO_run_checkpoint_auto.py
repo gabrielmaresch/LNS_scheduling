@@ -195,6 +195,7 @@ def run_checkpoint(
     example_number: int,
     checkpoint_path: Path,
     timeout_seconds: float = 120.0,
+    show_final_schedule: bool = True,
 ) -> None:
     instance_path = BASE_DIR / "Instances1-50" / f"Example{example_number}.txt"
     if not instance_path.exists():
@@ -258,9 +259,10 @@ def run_checkpoint(
     best_obj = solver.best_objective if math.isfinite(solver.best_objective) else None
     curr_obj = solver.current_objective if math.isfinite(solver.current_objective) else None
     print(f"run_completed=True runtime={total_runtime:.3f}s best_objective={best_obj} current_objective={curr_obj}")
-    print("\nFinal schedule:")
-    solver.schedule.display_schedule()
-    solver.schedule.display_validity()
+    if show_final_schedule:
+        print("\nFinal schedule:")
+        solver.schedule.display_schedule()
+        solver.schedule.display_validity()
 
 
 if __name__ == "__main__":

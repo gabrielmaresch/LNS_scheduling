@@ -1,0 +1,283 @@
+Loaded instance: Example0.txt
+instance=Example0
+instance_name=Example0
+instance_file=Example0.txt
+instance_path=/Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/Instances1-50/Example0.txt
+variant=alns_late_phase
+seed=2
+
+iter=1 elapsed=0.816s step_runtime=0.816s destroy=destroy_worst_workers_10pct repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=inf contender_objective=10.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_worst_workers_10pct: destroyed workers: [1]
+iter=2 elapsed=1.715s step_runtime=0.899s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=10.0 contender_objective=10.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=1 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=13 start=(w1,d1) end=(w2,d6); destroyed_inside=13
+iter=3 elapsed=2.342s step_runtime=0.627s destroy=destroy_all_forbidden_sequences repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=10.0 contender_objective=10.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=2 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNSATISFIABLE
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=10
+iter=4 elapsed=3.330s step_runtime=0.988s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=10.0 contender_objective=9.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=19 start=(w0,d5) end=(w3,d2); destroyed_inside=19
+iter=5 elapsed=4.177s step_runtime=0.847s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=9.0 contender_objective=8.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=15 start=(w4,d1) end=(w6,d1); destroyed_inside=15
+iter=6 elapsed=4.691s step_runtime=0.514s destroy=destroy_max_border_work repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=8.0 contender_objective=8.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=1 weights_updated=False
+  destroyed=destroy_max_border_work: destroyed max-border work: vars_erased=11
+iter=7 elapsed=5.220s step_runtime=0.528s destroy=destroy_max_border_shift_1 repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=8.0 contender_objective=8.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=2 weights_updated=False
+  destroyed=destroy_max_border_shift_1: destroyed max-border shift_1: vars_erased=7
+iter=8 elapsed=5.758s step_runtime=0.539s destroy=destroy_max_border_work repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=8.0 contender_objective=8.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=3 weights_updated=False
+  destroyed=destroy_max_border_work: destroyed max-border work: vars_erased=7
+iter=9 elapsed=6.436s step_runtime=0.677s destroy=destroy_max_border_shift_1 repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=8.0 contender_objective=8.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=4 weights_updated=False
+  destroyed=destroy_max_border_shift_1: destroyed max-border shift_1: vars_erased=23
+iter=10 elapsed=7.069s step_runtime=0.633s destroy=destroy_max_border_shift_3 repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=8.0 contender_objective=8.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=5 weights_updated=True
+  destroyed=destroy_max_border_shift_3: destroyed max-border shift_3: vars_erased=6
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.07     0.24
+    destroy_worst_workers_30pct            0.07     0.06
+    destroy_random_workers_20pct           0.07     0.06
+    destroy_random_window_20pct            0.07     0.06
+    destroy_all_forbidden_sequences        0.07     0.06
+    destroy_streak_around_worst_worker     0.07     0.07
+    destroy_worst_days_10pct               0.07     0.06
+    destroy_worst_days_30pct               0.07     0.06
+    destroy_random_days_20pct              0.07     0.06
+    destroy_max_border_work                0.07     0.06
+    destroy_max_border_off                 0.07     0.06
+    destroy_max_border_shift_1             0.07     0.06
+    destroy_max_border_shift_2             0.07     0.06
+    destroy_max_border_shift_3             0.07     0.06
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.40     0.34
+    repair_gecode_fast                     0.40     0.34
+    repair_chuffed_long                    0.10     0.08
+    repair_gecode_long                     0.10     0.23
+iter=11 elapsed=7.691s step_runtime=0.623s destroy=destroy_max_border_shift_1 repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=8.0 contender_objective=8.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=6 weights_updated=False
+  destroyed=destroy_max_border_shift_1: destroyed max-border shift_1: vars_erased=7
+iter=12 elapsed=8.332s step_runtime=0.641s destroy=destroy_max_border_shift_2 repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=8.0 contender_objective=8.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=7 weights_updated=False
+  destroyed=destroy_max_border_shift_2: destroyed max-border shift_2: vars_erased=7
+iter=13 elapsed=9.029s step_runtime=0.696s destroy=destroy_worst_workers_10pct repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=8.0 contender_objective=8.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=8 weights_updated=False
+  destroyed=destroy_worst_workers_10pct: destroyed workers: [4]
+iter=14 elapsed=9.655s step_runtime=0.626s destroy=destroy_worst_days_10pct repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=8.0 contender_objective=8.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=9 weights_updated=False
+  destroyed=destroy_worst_days_10pct: destroyed days: [1]
+iter=15 elapsed=10.141s step_runtime=0.486s destroy=destroy_max_border_shift_2 repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=8.0 contender_objective=8.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=10 weights_updated=False
+  destroyed=destroy_max_border_shift_2: destroyed max-border shift_2: vars_erased=7
+iter=16 elapsed=10.920s step_runtime=0.779s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=8.0 contender_objective=7.0 score=5 accepted=True repair_failed=False used_exploration=True stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_exploration: destroyed window: [0, 1, 2, 6] x [1, 2, 3, 4]
+iter=17 elapsed=11.461s step_runtime=0.540s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=7.0 contender_objective=7.0 score=0 accepted=False repair_failed=False used_exploration=True stagnation_rounds=1 weights_updated=False
+  destroyed=destroy_exploration: destroyed window: [0, 5, 6] x [2, 3]
+iter=18 elapsed=12.109s step_runtime=0.648s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=7.0 contender_objective=2.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=13 start=(w3,d2) end=(w5,d0); destroyed_inside=13
+iter=19 elapsed=12.662s step_runtime=0.553s destroy=destroy_all_forbidden_sequences repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=1 weights_updated=False
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=4
+iter=20 elapsed=13.351s step_runtime=0.689s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=2 weights_updated=True
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=13 start=(w2,d3) end=(w4,d1); destroyed_inside=13
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.24     0.20
+    destroy_worst_workers_30pct            0.06     0.05
+    destroy_random_workers_20pct           0.06     0.05
+    destroy_random_window_20pct            0.06     0.05
+    destroy_all_forbidden_sequences        0.06     0.05
+    destroy_streak_around_worst_worker     0.07     0.23
+    destroy_worst_days_10pct               0.06     0.05
+    destroy_worst_days_30pct               0.06     0.05
+    destroy_random_days_20pct              0.06     0.05
+    destroy_max_border_work                0.06     0.05
+    destroy_max_border_off                 0.06     0.05
+    destroy_max_border_shift_1             0.06     0.05
+    destroy_max_border_shift_2             0.06     0.05
+    destroy_max_border_shift_3             0.06     0.05
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.34     0.29
+    repair_gecode_fast                     0.34     0.29
+    repair_chuffed_long                    0.08     0.08
+    repair_gecode_long                     0.23     0.34
+iter=21 elapsed=20.159s step_runtime=6.808s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=3 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=21 start=(w1,d6) end=(w4,d5); destroyed_inside=21
+iter=22 elapsed=20.847s step_runtime=0.688s destroy=destroy_worst_days_10pct repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=4 weights_updated=False
+  destroyed=destroy_worst_days_10pct: destroyed days: [5]
+iter=23 elapsed=21.518s step_runtime=0.671s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=5 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=13 start=(w2,d3) end=(w4,d1); destroyed_inside=13
+iter=24 elapsed=22.530s step_runtime=1.012s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=6 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=17 start=(w2,d1) end=(w4,d3); destroyed_inside=17
+iter=25 elapsed=23.055s step_runtime=0.525s destroy=destroy_max_border_work repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=7 weights_updated=False
+  destroyed=destroy_max_border_work: destroyed max-border work: vars_erased=7
+iter=26 elapsed=23.617s step_runtime=0.562s destroy=destroy_worst_days_10pct repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=8 weights_updated=False
+  destroyed=destroy_worst_days_10pct: destroyed days: [6]
+iter=27 elapsed=24.172s step_runtime=0.555s destroy=destroy_worst_days_10pct repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=9 weights_updated=False
+  destroyed=destroy_worst_days_10pct: destroyed days: [0]
+iter=28 elapsed=54.590s step_runtime=30.418s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=7.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=10 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=25 start=(w1,d4) end=(w5,d0); destroyed_inside=25
+iter=29 elapsed=55.137s step_runtime=0.547s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=True stagnation_rounds=11 weights_updated=False
+  destroyed=destroy_exploration: destroyed window: [2, 3, 4] x [4, 5]
+iter=30 elapsed=55.695s step_runtime=0.558s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=True stagnation_rounds=12 weights_updated=True
+  destroyed=destroy_exploration: destroyed window: [0, 1] x [0, 1, 5, 6]
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.20     0.18
+    destroy_worst_workers_30pct            0.05     0.06
+    destroy_random_workers_20pct           0.05     0.06
+    destroy_random_window_20pct            0.05     0.06
+    destroy_all_forbidden_sequences        0.05     0.06
+    destroy_streak_around_worst_worker     0.23     0.20
+    destroy_worst_days_10pct               0.05     0.06
+    destroy_worst_days_30pct               0.05     0.06
+    destroy_random_days_20pct              0.05     0.06
+    destroy_max_border_work                0.05     0.04
+    destroy_max_border_off                 0.05     0.04
+    destroy_max_border_shift_1             0.05     0.04
+    destroy_max_border_shift_2             0.05     0.04
+    destroy_max_border_shift_3             0.05     0.04
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.29     0.28
+    repair_gecode_fast                     0.29     0.28
+    repair_chuffed_long                    0.08     0.11
+    repair_gecode_long                     0.34     0.33
+iter=31 elapsed=56.272s step_runtime=0.578s destroy=destroy_all_forbidden_sequences repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=13 weights_updated=False
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=4
+iter=32 elapsed=56.823s step_runtime=0.550s destroy=destroy_worst_workers_10pct repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=14 weights_updated=False
+  destroyed=destroy_worst_workers_10pct: destroyed workers: [3]
+iter=33 elapsed=57.376s step_runtime=0.554s destroy=destroy_all_forbidden_sequences repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=15 weights_updated=False
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=4
+iter=34 elapsed=57.855s step_runtime=0.479s destroy=destroy_max_border_shift_2 repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=16 weights_updated=False
+  destroyed=destroy_max_border_shift_2: destroyed max-border shift_2: vars_erased=4
+iter=35 elapsed=58.422s step_runtime=0.567s destroy=destroy_worst_workers_10pct repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=17 weights_updated=False
+  destroyed=destroy_worst_workers_10pct: destroyed workers: [3]
+iter=36 elapsed=58.985s step_runtime=0.563s destroy=destroy_all_forbidden_sequences repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=18 weights_updated=False
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=4
+iter=37 elapsed=59.502s step_runtime=0.517s destroy=destroy_max_border_shift_3 repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=19 weights_updated=False
+  destroyed=destroy_max_border_shift_3: destroyed max-border shift_3: vars_erased=7
+iter=38 elapsed=60.058s step_runtime=0.556s destroy=destroy_all_forbidden_sequences repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=20 weights_updated=False
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=4
+iter=39 elapsed=60.626s step_runtime=0.569s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=True stagnation_rounds=21 weights_updated=False
+  destroyed=destroy_exploration: destroyed window: [0, 4, 5, 6] x [0, 6]
+iter=40 elapsed=61.199s step_runtime=0.573s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=True stagnation_rounds=22 weights_updated=True
+  destroyed=destroy_exploration: destroyed window: [3, 4] x [0, 4, 5, 6]
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.18     0.16
+    destroy_worst_workers_30pct            0.06     0.07
+    destroy_random_workers_20pct           0.06     0.07
+    destroy_random_window_20pct            0.06     0.07
+    destroy_all_forbidden_sequences        0.06     0.07
+    destroy_streak_around_worst_worker     0.20     0.18
+    destroy_worst_days_10pct               0.06     0.07
+    destroy_worst_days_30pct               0.06     0.07
+    destroy_random_days_20pct              0.06     0.07
+    destroy_max_border_work                0.04     0.03
+    destroy_max_border_off                 0.04     0.03
+    destroy_max_border_shift_1             0.04     0.03
+    destroy_max_border_shift_2             0.04     0.03
+    destroy_max_border_shift_3             0.04     0.03
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.28     0.27
+    repair_gecode_fast                     0.28     0.27
+    repair_chuffed_long                    0.11     0.14
+    repair_gecode_long                     0.33     0.31
+iter=41 elapsed=62.168s step_runtime=0.969s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=23 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=17 start=(w2,d1) end=(w4,d3); destroyed_inside=17
+iter=42 elapsed=68.713s step_runtime=6.545s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=24 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=21 start=(w1,d6) end=(w4,d5); destroyed_inside=21
+iter=43 elapsed=69.277s step_runtime=0.564s destroy=destroy_all_forbidden_sequences repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=25 weights_updated=False
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=4
+iter=44 elapsed=75.697s step_runtime=6.421s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=True used_exploration=False stagnation_rounds=26 weights_updated=False
+  repair_error=RuntimeError: MiniZinc repair failed with status: UNKNOWN
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=25 start=(w1,d4) end=(w5,d0); destroyed_inside=25
+iter=45 elapsed=76.656s step_runtime=0.959s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=27 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=15 start=(w2,d2) end=(w4,d2); destroyed_inside=15
+iter=46 elapsed=77.179s step_runtime=0.523s destroy=destroy_max_border_off repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=28 weights_updated=False
+  destroyed=destroy_max_border_off: destroyed max-border off: vars_erased=7
+iter=47 elapsed=77.766s step_runtime=0.587s destroy=destroy_worst_days_10pct repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=29 weights_updated=False
+  destroyed=destroy_worst_days_10pct: destroyed days: [1]
+iter=48 elapsed=78.315s step_runtime=0.548s destroy=destroy_worst_workers_10pct repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=30 weights_updated=False
+  destroyed=destroy_worst_workers_10pct: destroyed workers: [3]
+iter=49 elapsed=78.905s step_runtime=0.590s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=True stagnation_rounds=31 weights_updated=False
+  destroyed=destroy_exploration: destroyed window: [0, 4, 5, 6] x [3, 4]
+iter=50 elapsed=79.497s step_runtime=0.592s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=True stagnation_rounds=32 weights_updated=True
+  destroyed=destroy_exploration: destroyed window: [1, 2, 3, 4] x [3, 4]
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.16     0.15
+    destroy_worst_workers_30pct            0.07     0.08
+    destroy_random_workers_20pct           0.07     0.08
+    destroy_random_window_20pct            0.07     0.08
+    destroy_all_forbidden_sequences        0.07     0.08
+    destroy_streak_around_worst_worker     0.18     0.17
+    destroy_worst_days_10pct               0.07     0.08
+    destroy_worst_days_30pct               0.07     0.08
+    destroy_random_days_20pct              0.07     0.08
+    destroy_max_border_work                0.03     0.03
+    destroy_max_border_off                 0.03     0.03
+    destroy_max_border_shift_1             0.03     0.03
+    destroy_max_border_shift_2             0.03     0.03
+    destroy_max_border_shift_3             0.03     0.03
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.27     0.27
+    repair_gecode_fast                     0.27     0.27
+    repair_chuffed_long                    0.14     0.16
+    repair_gecode_long                     0.31     0.30
+iter=51 elapsed=80.107s step_runtime=0.610s destroy=destroy_worst_days_10pct repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=33 weights_updated=False
+  destroyed=destroy_worst_days_10pct: destroyed days: [5]
+iter=52 elapsed=80.674s step_runtime=0.567s destroy=destroy_worst_days_10pct repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=34 weights_updated=False
+  destroyed=destroy_worst_days_10pct: destroyed days: [0]
+iter=53 elapsed=81.247s step_runtime=0.573s destroy=destroy_worst_days_10pct repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=35 weights_updated=False
+  destroyed=destroy_worst_days_10pct: destroyed days: [6]
+iter=54 elapsed=81.792s step_runtime=0.544s destroy=destroy_all_forbidden_sequences repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=36 weights_updated=False
+  destroyed=destroy_all_forbidden_sequences: destroyed forbidden sequences: vars_erased=4
+iter=55 elapsed=83.170s step_runtime=1.379s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=37 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=19 start=(w2,d0) end=(w4,d4); destroyed_inside=19
+iter=56 elapsed=83.755s step_runtime=0.585s destroy=destroy_worst_days_10pct repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=38 weights_updated=False
+  destroyed=destroy_worst_days_10pct: destroyed days: [4]
+iter=57 elapsed=84.305s step_runtime=0.550s destroy=destroy_worst_workers_10pct repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=39 weights_updated=False
+  destroyed=destroy_worst_workers_10pct: destroyed workers: [3]
+iter=58 elapsed=86.108s step_runtime=1.803s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=2.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=40 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=23 start=(w1,d5) end=(w4,d6); destroyed_inside=23
+iter=59 elapsed=88.157s step_runtime=2.049s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=2.0 contender_objective=1.0 score=5 accepted=True repair_failed=False used_exploration=True stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_exploration: destroyed window: [0, 1, 2, 3] x [0, 1, 2, 6]
+iter=60 elapsed=88.691s step_runtime=0.533s destroy=destroy_exploration repair=repair_exploration objective_metric=minizinc_objective incumbent_objective=1.0 contender_objective=1.0 score=0 accepted=False repair_failed=False used_exploration=True stagnation_rounds=1 weights_updated=True
+  destroyed=destroy_exploration: destroyed window: [2, 3] x [2, 3, 4]
+
+  weight update (destroy):
+    operator                             before    after
+    destroy_worst_workers_10pct            0.15     0.14
+    destroy_worst_workers_30pct            0.08     0.08
+    destroy_random_workers_20pct           0.08     0.08
+    destroy_random_window_20pct            0.08     0.08
+    destroy_all_forbidden_sequences        0.08     0.08
+    destroy_streak_around_worst_worker     0.17     0.16
+    destroy_worst_days_10pct               0.08     0.08
+    destroy_worst_days_30pct               0.08     0.08
+    destroy_random_days_20pct              0.08     0.08
+    destroy_max_border_work                0.03     0.02
+    destroy_max_border_off                 0.03     0.02
+    destroy_max_border_shift_1             0.03     0.02
+    destroy_max_border_shift_2             0.03     0.02
+    destroy_max_border_shift_3             0.03     0.02
+
+  weight update (repair):
+    operator                             before    after
+    repair_chuffed_fast                    0.27     0.27
+    repair_gecode_fast                     0.27     0.27
+    repair_chuffed_long                    0.16     0.18
+    repair_gecode_long                     0.30     0.29
+iter=61 elapsed=89.293s step_runtime=0.603s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective_metric=minizinc_objective incumbent_objective=1.0 contender_objective=1.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=2 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=11 start=(w4,d5) end=(w6,d1); destroyed_inside=11
+iter=62 elapsed=89.896s step_runtime=0.603s destroy=destroy_worst_days_10pct repair=repair_gecode_long objective_metric=minizinc_objective incumbent_objective=1.0 contender_objective=1.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=3 weights_updated=False
+  destroyed=destroy_worst_days_10pct: destroyed days: [4]
+iter=63 elapsed=90.475s step_runtime=0.579s destroy=destroy_worst_days_10pct repair=repair_chuffed_long objective_metric=minizinc_objective incumbent_objective=1.0 contender_objective=1.0 score=0 accepted=False repair_failed=False used_exploration=False stagnation_rounds=4 weights_updated=False
+  destroyed=destroy_worst_days_10pct: destroyed days: [5]
+iter=64 elapsed=92.131s step_runtime=1.656s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective_metric=minizinc_objective incumbent_objective=1.0 contender_objective=0.0 score=5 accepted=True repair_failed=False used_exploration=False stagnation_rounds=0 weights_updated=False
+  destroyed=destroy_streak_around_worst_worker: destroyed streak len=17 start=(w4,d2) end=(w6,d4); destroyed_inside=17

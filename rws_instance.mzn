@@ -14,7 +14,7 @@ int: horizon = n * d; % flattened cyclic schedule length
 array[0..s+1, 1..2] of int: max_min_lengths = array2d(0..4, 1..2, [2, 4, 2, 7, 2, 6, 2, 5, 4, 7]);
 % min max for free, day, afternoon, night total
 
-int: min_rest = 2;
+int: min_rest = 1;
 int: max_rest = 4;
 
 int: min_work = 4;
@@ -25,12 +25,12 @@ int: late_phase_weight = 10000;
 bool: late_phase_strict_improvement = false;
 int: incumbent_legacy_objective = 156;
 
-int: num_forbidden_sequences = 3;
+int: num_forbidden_sequences = 6;
 % Row width is fixed at 3 (max supported forbidden-sequence length).
 % The first index selects the sequence; the second index selects its position in the tuple.
-array[1..num_forbidden_sequences] of int: forbidden_sequence_lengths = array1d(1..3, [2, 2, 2]);
+array[1..num_forbidden_sequences] of int: forbidden_sequence_lengths = array1d(1..6, [2, 2, 2, 3, 3, 3]);
 % For length-2 sequences, the 3rd entry is padding (0) and ignored via forbidden_sequence_lengths.
-array[1..num_forbidden_sequences, 1..3] of int: forbidden_sequences = array2d(1..3, 1..3, [3, 1, 0, 3, 2, 0, 2, 1, 0]);
+array[1..num_forbidden_sequences, 1..3] of int: forbidden_sequences = array2d(1..6, 1..3, [3, 1, 0, 3, 2, 0, 2, 1, 0, 2, 0, 1, 3, 0, 2, 3, 0, 1]);
 
 
 function int: next_day(int: day) = if day = d then 1 else day + 1 endif;
