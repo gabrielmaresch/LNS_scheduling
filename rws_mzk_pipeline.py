@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import math
 from pathlib import Path
 import re
 from time import perf_counter
@@ -13,6 +14,12 @@ if TYPE_CHECKING:
 def _model_params_from_lns(lns: "rws_lns") -> Dict[str, Any]:
     """Build all required MiniZinc input parameters from an rws_lns object."""
     inst = lns.instance
+    incumbent_raw = getattr(lns, "_incumbent_legacy_objective", 10**9)
+    try:
+        incumbent = float(incumbent_raw)
+    except (TypeError, ValueError):
+        incumbent = float(10**9)
+    incumbent_int = int(max(0.0, incumbent)) if math.isfinite(incumbent) else 10**9
     return {
         "d": inst.num_days,
         "n": inst.num_workers,
@@ -22,6 +29,12 @@ def _model_params_from_lns(lns: "rws_lns") -> Dict[str, Any]:
         "max_rest": inst.max_consecutive_off,
         "min_work": inst.min_consecutive_work,
         "max_work": inst.max_consecutive_work,
+        "late_phase": bool(getattr(lns, "_late_phase", False)),
+        "late_phase_weight": int(getattr(lns, "_late_phase_weight", 100000)),
+        "late_phase_strict_improvement": bool(
+            getattr(lns, "_late_phase_strict_improvement", False)
+        ),
+        "incumbent_legacy_objective": incumbent_int,
         "required_workers": _required_workers_from_lns(lns),
     }
 
@@ -165,6 +178,26 @@ def _generate_rws_instance_mzn(
     text = _replace_once(text, r"^bool:\s*cyclic\s*;.*$", f"bool: cyclic = {str(bool(lns.instance.cyclicity)).lower()};")
     text = _replace_once(
         text,
+        r"^bool:\s*late_phase\s*;.*$",
+        f"bool: late_phase = {str(bool(params['late_phase'])).lower()};",
+    )
+    text = _replace_once(
+        text,
+        r"^int:\s*late_phase_weight\s*;.*$",
+        f"int: late_phase_weight = {params['late_phase_weight']};",
+    )
+    text = _replace_once(
+        text,
+        r"^bool:\s*late_phase_strict_improvement\s*;.*$",
+        f"bool: late_phase_strict_improvement = {str(bool(params['late_phase_strict_improvement'])).lower()};",
+    )
+    text = _replace_once(
+        text,
+        r"^int:\s*incumbent_legacy_objective\s*;.*$",
+        f"int: incumbent_legacy_objective = {params['incumbent_legacy_objective']};",
+    )
+    text = _replace_once(
+        text,
         r"^array\[1\.\.d,\s*1\.\.s\]\s+of\s+int:\s+required_workers\s*;.*$",
         "array[1..d, 1..s] of int: required_workers = "
         + _array2d_literal(1, params["d"], 1, params["s"], required_workers)
@@ -298,18 +331,21 @@ def solve_rws_lns(
         result = run_instance.solve(timeout=timedelta(seconds=timeout_seconds))
         elapsed = perf_counter() - start
 
+    solver_objective = float(result.objective) if result.objective is not None else None
     out: Dict[str, Any] = {
         "status": str(result.status),
         "solve_time_sec": elapsed,
         "has_solution": result.status.has_solution(),
-        "objective": (
-            float(result.objective) if result.objective is not None else None
-        ),
+        "objective": solver_objective,
+        "solver_objective": solver_objective,
     }
 
     lns.contender = None
     if result.status.has_solution():
         solution = result.solution.__dict__
+        legacy_objective = solution.get("legacy_objective")
+        if legacy_objective is not None:
+            out["objective"] = float(legacy_objective)
         shift_of = solution.get("shift_of")
         if shift_of is None:
             raise ValueError("MiniZinc solution does not contain `shift_of`")

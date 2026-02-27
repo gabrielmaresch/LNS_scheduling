@@ -20,6 +20,10 @@ int: max_rest;
 int: min_work;
 int: max_work;
 bool: cyclic; % worker i picks up schedule of worker i+1 in next week
+bool: late_phase;
+int: late_phase_weight;
+bool: late_phase_strict_improvement;
+int: incumbent_legacy_objective;
 
 int: num_forbidden_sequences;
 % Row width is fixed at 3 (max supported forbidden-sequence length).
@@ -96,6 +100,7 @@ array[1..d, 1..s] of var 0..n: slack_required_min;
 array[1..d, 1..s] of var 0..n: slack_required_max;
 var int: slack_forbidden_total;
 constraint slack_forbidden_total >= 0;
+constraint late_phase_weight >= 1;
 % constraint forall(worker in workers)(
 %   sum(day in days)(bool2int(shift_of[worker, day] = 0)) + slack_offday_min[worker] >= 1
 % );
@@ -285,14 +290,38 @@ constraint slack_forbidden_total =
     )
   );
 
-solve
-  :: int_search([shift_of[w, day] | w in workers, day in days], first_fail, indomain_min, complete)
-  minimize
+var int: legacy_objective :: output_var;
+var int: late_phase_primary_objective :: output_var;
+var int: late_phase_secondary_objective :: output_var;
+var int: late_phase_objective :: output_var;
+
+constraint legacy_objective =
   sum(worker in workers)(slack_work_min[worker] + slack_work_max[worker] + slack_rest_min[worker] + slack_rest_max[worker])
-  % + sum(worker in workers)(slack_offday_min[worker])
   + sum(worker in workers, shift in shifts)(slack_shifts_min[worker, shift] + slack_shifts_max[worker, shift])
   + sum(day in days, shift in shifts)(slack_required_min[day, shift] + slack_required_max[day, shift])
   + slack_forbidden_total;
+
+constraint late_phase_primary_objective =
+  sum(worker in workers)(slack_work_min[worker] + slack_work_max[worker] + slack_rest_min[worker] + slack_rest_max[worker])
+  + sum(day in days, shift in shifts)(slack_required_min[day, shift] + slack_required_max[day, shift])
+  + slack_forbidden_total;
+
+constraint late_phase_secondary_objective =
+  sum(worker in workers, shift in shifts)(slack_shifts_min[worker, shift] + slack_shifts_max[worker, shift]);
+
+constraint late_phase_objective =
+  late_phase_weight * late_phase_primary_objective + late_phase_secondary_objective;
+
+constraint
+  if late_phase /\ late_phase_strict_improvement then
+    legacy_objective < incumbent_legacy_objective
+  else
+    true
+  endif;
+
+solve
+  :: int_search([shift_of[w, day] | w in workers, day in days], first_fail, indomain_min, complete)
+  minimize (if late_phase then late_phase_objective else legacy_objective endif);
 
 %output [ show(d), " days\n\n"];
 %output [

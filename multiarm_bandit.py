@@ -16,7 +16,7 @@ def _default_score_function(
     incumbent_objective: float,
     contender_objective: float,
     temperature: float,
-    late_phase_threshold: int = 5,
+    late_phase_threshold: int = 15,
     noop: bool = False,
 ) -> tuple[int, bool]:
     """Return `(score, accepted)` using best/current/contender objective values and SA."""
@@ -56,13 +56,16 @@ class MBandit:
     ###### Parameters for weight updates
     iterations_till_weight_update: int = 10
     reaction_factor: float = 0.2
-    beta_softmax: float = 1
-    equal_move_allowed_freezeout: int = 5
+    beta_softmax: float = 1.5
+    equal_move_allowed_freezeout: int = 15
+    late_phase_weight: int = 100000
+    late_phase_strict_improvement: bool = True
     
     ##### Simulated annealing for accepting subpar solutions
     annealing_temperature: float = 5
-    min_annealing_temperature: float = 0.7
-    time_decay_annealing: float = 0.98
+    initial_annealing_temperature: float = field(init=False)
+    min_annealing_temperature: float = 0.5
+    time_decay_annealing: float = 0.975
     binomial_p: float = 0.2
     reshuffle_before_exploration: bool = False
     reshuffle_only_in_early_phase: bool = False
@@ -77,10 +80,11 @@ class MBandit:
     
     destroy_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
     repair_operators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
+    exclude_in_late_phase_destroy: Dict[str, bool] = field(default_factory=dict)
     
     ######## Exploration
     exploration_after_stagnation: int = 10
-    number_of_consecutive_explorations: int = 5
+    number_of_consecutive_explorations: int = 2
     destroy_exploration_operator: Callable[[rws_lns], list[tuple[int, int]]] = field(init=False, repr=False)
     solver_name: str = "chuffed"
     exploratory_timeout_seconds: float = 100
@@ -94,7 +98,7 @@ class MBandit:
     operator_usage_counts: Dict[str, int] = field(init=False)
     
     ######## Tabu parameters
-    destroy_tabu_length: int = 8
+    destroy_tabu_length: int = 10
     destroy_tabu_history: deque[tuple[frozenset[int], frozenset[int]]] = field(
         init=False, repr=False
     )
@@ -125,8 +129,11 @@ class MBandit:
             raise ValueError("reaction_factor/time_decay out of bounds")
         if self.min_annealing_temperature > self.annealing_temperature:
             raise ValueError("min_temperature must be <= annealing_temperature")
+        self.initial_annealing_temperature = float(self.annealing_temperature)
         if self.equal_move_allowed_freezeout < 0:
             raise ValueError("equal_move_allowed_freezeout must be >= 0")
+        if self.late_phase_weight <= 0:
+            raise ValueError("late_phase_weight must be > 0")
         if not (0.0 <= self.binomial_p <= 0.5):
             raise ValueError("binomial_p must be in [0, 0.5] for small-streak bias")
 
@@ -156,6 +163,8 @@ class MBandit:
                     timeout_seconds=self.minizinc_timeout_seconds,
                 )
             }
+        for name in self.destroy_operators:
+            self.exclude_in_late_phase_destroy.setdefault(name, False)
         ### Here we set the standard destroy operator for explorations
         self.destroy_exploration_operator = _make_destroy_random_window(0.25)
         self.repair_exploration_operator = _make_repair_operator(
@@ -199,10 +208,16 @@ class MBandit:
         chosen = random.choices(names, weights=probs, k=1)[0]
         return chosen, self.repair_operators[chosen]
 
-    def _choose_destroy_operator(self) -> tuple[str, Callable[..., Any]]:
+    def _choose_destroy_operator(
+        self,
+        names: Optional[list[str]] = None,
+    ) -> tuple[str, Callable[..., Any]]:
         """Sample one destroy operator according to current destroy weights."""
-        names = list(self.destroy_operators.keys())
+        names = list(self.destroy_operators.keys()) if names is None else names
         probs = [self.weights_destroy[name] for name in names]
+        if sum(probs) <= 0.0:
+            chosen = random.choice(names)
+            return chosen, self.destroy_operators[chosen]
         chosen = random.choices(names, weights=probs, k=1)[0]
         return chosen, self.destroy_operators[chosen]
 
@@ -227,12 +242,23 @@ class MBandit:
         days = {day for day, _ in destroyed_pairs}
         return workers, days
 
-    def _is_strict_tabu(self, destroyed_workers: set[int], destroyed_days: set[int]) -> bool:
+    def _is_strict_tabu(
+        self,
+        destroyed_workers: set[int],
+        destroyed_days: set[int],
+        use_exploration: bool = False,
+    ) -> bool:
         """Return True when current destroyed IDs are a subset of a recent tabu signature."""
         if not destroyed_workers and not destroyed_days:
             return False
         workers_sig, days_sig = self._destroy_signature(destroyed_workers, destroyed_days)
-        for tabu_workers, tabu_days in self.destroy_tabu_counts:
+        if use_exploration:
+            tabu_signatures = (
+                [self.destroy_tabu_history[-1]] if self.destroy_tabu_history else []
+            )
+        else:
+            tabu_signatures = self.destroy_tabu_counts.keys()
+        for tabu_workers, tabu_days in tabu_signatures:
             workers_match = (not workers_sig) or workers_sig.issubset(tabu_workers)
             days_match = (not days_sig) or days_sig.issubset(tabu_days)
             if workers_sig and not days_sig and workers_match:
@@ -254,13 +280,22 @@ class MBandit:
         last_result: list[tuple[int, int]] = []
         last_workers: set[int] = set()
         last_days: set[int] = set()
+        destroy_candidates: Optional[list[str]] = None
+        if (not use_exploration) and bool(getattr(lns, "_late_phase", False)):
+            candidates = [
+                name
+                for name in self.destroy_operators
+                if not self.exclude_in_late_phase_destroy.get(name, False)
+            ]
+            if candidates:
+                destroy_candidates = candidates
 
         for _ in range(attempts):
             lns._initialize_fixed_vars(self.schedule)
             destroy_name, destroy_op = (
                 ("destroy_exploration", self.destroy_exploration_operator)
                 if use_exploration
-                else self._choose_destroy_operator()
+                else self._choose_destroy_operator(destroy_candidates)
             )
 
             destroy_result = destroy_op(lns)
@@ -292,7 +327,7 @@ class MBandit:
                 lns=lns,
                 use_exploration=use_exploration,
             )
-            if not self._is_strict_tabu(workers, days):
+            if not self._is_strict_tabu(workers, days, use_exploration=use_exploration):
                 self._record_destroy_signature(workers, days)
                 return destroy_name, destroy_result, workers, days
 
@@ -392,6 +427,15 @@ class MBandit:
         if use_exploration:
             self.exploration_steps_remaining -= 1
         early_phase = incumbent_objective > float(self.equal_move_allowed_freezeout)
+        lns._late_phase = not early_phase
+        lns._late_phase_weight = int(self.late_phase_weight)
+        lns._late_phase_strict_improvement = bool(
+            self.late_phase_strict_improvement and (not early_phase)
+        )
+        if math.isfinite(incumbent_objective):
+            lns._incumbent_legacy_objective = int(max(0.0, incumbent_objective))
+        else:
+            lns._incumbent_legacy_objective = 10**9
         lns._repair_timeout_multiplier = 1.0 if early_phase else 2.0
         shuffle_suffix = ""
         reshuffle_allowed = (
@@ -519,6 +563,10 @@ class MBandit:
             self.next_exploration_trigger = self.exploration_after_stagnation
         else:
             self.stagnation_rounds += 1
+            self.annealing_temperature = min(
+                self.initial_annealing_temperature,
+                self.annealing_temperature * 1.05,
+            )
         weights_updated = False
         destroy_weight_updates: Dict[str, Dict[str, float]] = {}
         repair_weight_updates: Dict[str, Dict[str, float]] = {}
@@ -998,18 +1046,27 @@ if __name__ == "__main__":
         "destroy_random_days_20pct": _make_destroy_random_days(0.20),
         **max_border_ops,
     }
-
+  ############## Parameters for actual run ###############
     mab = MBandit(
         instance=instance,
         schedule=schedule,
         model_path=model_path,
         destroy_operators=destroy_ops,
         repair_operators=repair_ops,
-        global_timeout_seconds=600,
-        minizinc_timeout_seconds=60
+        global_timeout_seconds=1000,
+        minizinc_timeout_seconds=100
 
     )
-
+    for name in (
+        "destroy_random_workers_20pct",
+        "destroy_random_days_20pct",
+        "destroy_random_window_20pct",
+        "destroy_worst_workers_30pct",
+        "destroy_worst_days_30pct",
+    ):
+        if name in mab.exclude_in_late_phase_destroy:
+            mab.exclude_in_late_phase_destroy[name] = True
+##############################################################
     #in the beginning favour fast repairs
     for repair_op in mab.weights_repair.keys():
         if 'fast' in repair_op:
@@ -1175,6 +1232,8 @@ if __name__ == "__main__":
         "reaction_factor",
         "beta_softmax",
         "equal_move_allowed_freezeout",
+        "late_phase_weight",
+        "late_phase_strict_improvement",
         "annealing_temperature",
         "min_annealing_temperature",
         "time_decay_annealing",
@@ -1207,9 +1266,6 @@ if __name__ == "__main__":
     if first_violation is None:
         snapshot_lines.append("none")
     else:
-        snapshot_lines.append(
-            f"first_from_w0_d0: w{first_violation[0]}, d{first_violation[1]}, type={first_violation[2]}"
-        )
         total_slots = final_inst.num_workers * final_inst.num_days
         cursor_worker, cursor_day = 0, 0
         seen: set[tuple[int, int, str]] = set()

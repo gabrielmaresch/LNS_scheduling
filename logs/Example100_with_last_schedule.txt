@@ -30,22 +30,22 @@ N  1320 480 1 3
 N D
 
 # --- LNS APPENDIX ---
-final_objective=2.0
-runtime_seconds=328.419 iterations=51 solved=False
+final_objective=1.0
+runtime_seconds=156.422 iterations=37 solved=False
 
 mbandit_parameters:
 iterations_till_weight_update=10
 reaction_factor=0.2
 beta_softmax=1
 equal_move_allowed_freezeout=5
-annealing_temperature=1.784431432426873
+annealing_temperature=5.0
 min_annealing_temperature=0.7
 time_decay_annealing=0.98
 binomial_p=0.2
 reshuffle_before_exploration=False
 reshuffle_only_in_early_phase=False
-global_timeout_seconds=300.0
-minizinc_timeout_seconds=50
+global_timeout_seconds=150
+minizinc_timeout_seconds=60
 exploration_after_stagnation=10
 number_of_consecutive_explorations=5
 exploratory_timeout_seconds=100
@@ -54,15 +54,14 @@ destroy_tabu_length=8
 
 last_schedule_shift_ids:
 day        0   1   2   3   4   5   6
-worker  0:   0   0   1   1   1   2   0
-worker  1:   1   1   1   1   0   2   1
-worker  2:   1   1   2   0   3   3   0
-worker  3:   2   1   2   3   3   0   1
-worker  4:   1   2   2   0   2   3   2
-worker  5:   2   2   0   1   1   1   2
-worker  6:   0   3   3   2   2   1   2
-worker  7:   0   3   3   2   2   1   3
+worker  0:   0   1   3   0   2   1   1
+worker  1:   1   3   0   1   3   2   0
+worker  2:   1   1   1   2   3   3   0
+worker  3:   2   1   1   1   1   0   2
+worker  4:   1   2   2   2   0   3   2
+worker  5:   2   2   2   0   1   1   2
+worker  6:   3   3   2   0   2   1   1
+worker  7:   2   0   3   3   2   2   3
 
 violation_diagnostic_from_find_first_violation_after:
-first_from_w0_d0: w0, d0, type=shift_req_under_A_by_1
-- w0, d0, type=shift_req_under_A_by_1
+- w0, d3, type=shift_req_under_D_by_1

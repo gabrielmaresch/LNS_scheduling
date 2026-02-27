@@ -844,7 +844,7 @@ class drl_alns:
             checkpoint = (
                 Path(checkpoint_path)
                 if checkpoint_path is not None
-                else Path(__file__).resolve().parent / "drl_ppo_checkpoint_"+str(self.total_steps)+".pt"
+                else Path(__file__).resolve().parent / f"drl_ppo_checkpoint_{total_steps}.pt"
             )
             checkpoint.parent.mkdir(parents=True, exist_ok=True)
             torch.save(
@@ -1004,17 +1004,37 @@ def write_training_log(log, output_path: Path) -> None:
 
 
 def plot_cumulative_reward(log, show: bool = False, output_path: Path | None = None):
-    """Plot cumulative reward across all training steps."""
+    """Plot cumulative reward normalized to 0..100%."""
     import matplotlib.pyplot as plt
 
     plt.figure(figsize=(12, 4.5))
     rewards = log.get("reward", [])
     if rewards:
         cumulative = np.cumsum(np.array(rewards, dtype=np.float64))
-        steps = np.arange(1, len(cumulative) + 1)
-        plt.plot(steps, cumulative, color="tab:blue", linewidth=2.0, label="Cumulative reward")
+    else:
+        cumulative = np.array(
+            log.get("cumulative_rewards", log.get("cumulative_reward", [])),
+            dtype=np.float64,
+        )
+
+    if cumulative.size > 0:
+        cmin = float(np.min(cumulative))
+        cmax = float(np.max(cumulative))
+        if cmax > cmin:
+            normalized = (cumulative - cmin) / (cmax - cmin) * 100.0
+        else:
+            normalized = np.full_like(cumulative, 100.0)
+        steps = np.arange(1, len(normalized) + 1)
+        plt.plot(
+            steps,
+            normalized,
+            color="tab:blue",
+            linewidth=2.0,
+            label="Cumulative reward (normalized)",
+        )
         plt.xlabel("Step")
-        plt.ylabel("Cumulative reward")
+        plt.ylabel("Cumulative reward (%)")
+        plt.ylim([0, 100])
         plt.legend()
     else:
         plt.text(
@@ -1025,7 +1045,7 @@ def plot_cumulative_reward(log, show: bool = False, output_path: Path | None = N
             va="center",
             transform=plt.gca().transAxes,
         )
-    plt.title("Cumulative Reward Across Training")
+    plt.title("Cumulative Reward Across Training (Normalized)")
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     if output_path is not None:
@@ -1182,7 +1202,7 @@ if __name__ == "__main__":
     
     try:
         final_schedule, log = solver.train(
-            total_steps=1000,
+            total_steps=500,
             instance_paths=instance_paths,
             per_instance_cap=125,
         )
