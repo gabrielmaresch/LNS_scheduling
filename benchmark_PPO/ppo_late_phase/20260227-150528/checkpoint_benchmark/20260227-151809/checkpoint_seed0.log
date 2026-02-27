@@ -1,0 +1,10 @@
+run_dir=/Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-150528
+results_dir=/Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-150528/results
+checkpoint=checkpoint_seed0.pt
+seed=0
+runs_each=2
+timeout_seconds=120.0
+test_instances=Example3
+
+
+===== instance=Example3 run=1/2 checkpoint=checkpoint_seed0.pt =====
