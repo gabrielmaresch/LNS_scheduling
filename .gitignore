@@ -1,1 +1,9 @@
+# Virtual environment
 .venv/
+# Python cache
+__pycache__/
+*.py[cod]
+# Matplotlib cache
+.mpl_cache/
+# Ignore local MiniZinc instance variant
+rws_instance.mzn

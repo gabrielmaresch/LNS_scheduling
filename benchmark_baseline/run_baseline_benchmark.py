@@ -9,7 +9,6 @@ import sys
 import re
 import warnings
 
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
@@ -90,8 +89,15 @@ def _solve_once(
         runtime_seconds = perf_counter() - start
 
     status = str(result.status)
-    timeout_hit = ("TIMEOUT" in status.upper()) or (
-        (not result.status.has_solution()) and runtime_seconds >= timeout_seconds
+    status_upper = status.upper()
+    status_indicates_timeout = ("TIMEOUT" in status_upper) or ("UNKNOWN" in status_upper)
+    runtime_exceeded_budget = runtime_seconds >= timeout_seconds
+    has_proven_optimality = "OPTIMAL_SOLUTION" in status_upper
+
+    # For optimization problems, status can be SATISFIED when a time limit is hit
+    # after finding an incumbent. Treat over-budget runs as timeout unless optimal.
+    timeout_hit = status_indicates_timeout or (
+        runtime_exceeded_budget and not has_proven_optimality
     )
     return {
         "status": status,
@@ -141,6 +147,9 @@ def main() -> None:
                 f"running instance={instance_path.stem} solver={solver_name} timeout={timeout_seconds}s"
             )
             lns = rws_lns(instance=instance, incumbent=schedule)
+            # Baseline must stay in non-late-phase mode regardless of other experiments.
+            lns._late_phase = False
+            lns._late_phase_strict_improvement = False
             model_instance, _ = build_rws_model_instance(
                 lns=lns,
                 model_path=BASE_DIR / "rws_instance.mzn",

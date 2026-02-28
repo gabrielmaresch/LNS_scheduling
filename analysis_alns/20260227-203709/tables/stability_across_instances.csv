@@ -1,0 +1,8 @@
+metric,value
+mean_std_A,10.306343322812705
+mean_std_B,13.793921306423476
+median_std_A,8.504900548115382
+median_std_B,4.041451884327381
+mean_cv_A,0.6730770657809849
+mean_cv_B,0.5801174134346117
+wilcoxon_std_p_value_two_sided,0.748291015625

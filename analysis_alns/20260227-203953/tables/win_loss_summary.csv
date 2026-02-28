@@ -1,0 +1,5 @@
+comparison,wins,ties,losses,missing
+mean_A_vs_B,8,2,5,0
+best_A_vs_B,5,6,4,0
+mean_A_vs_CP,1,0,0,14
+mean_B_vs_CP,1,0,0,14
