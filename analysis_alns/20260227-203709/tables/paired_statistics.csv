@@ -1,8 +1,0 @@
-metric,value
-mean_difference_A_minus_B,-3.6000000000000014
-median_difference_A_minus_B,-0.6666666666666665
-wilcoxon_n_nonzero,13.0
-wilcoxon_w_stat,30.0
-wilcoxon_p_value_two_sided,0.297607421875
-mean_pct_improvement_B_over_A,-0.405619090956491
-median_pct_improvement_B_over_A,-0.03649635036496361

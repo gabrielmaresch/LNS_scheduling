@@ -1,0 +1,69 @@
+#Length of the schedule
+7
+
+#Number of Employees
+7
+
+##Number of Shifts
+3
+
+# Temporal Requirements Matrix
+1 2 2 2 2 2 1
+2 2 2 2 2 2 2
+1 2 2 2 2 2 1
+
+#ShiftName, Start, Length, Name, MinlengthOfBlocks, MaxLengthOfBlocks
+D  360 480 2 7
+A  840 480 1 5
+N  1320 480 2 5
+
+# Minimum and maximum length of days-off blocks 
+1 4
+
+# Minimum and maximum length of work blocks
+3 7
+
+# Number of not allowed shift sequences: NrSequencesOfLength2, NrSequencesOfLength3: 
+2 0
+
+# Not allowed shift sequences 
+N D 
+A D
+
+# --- LNS APPENDIX ---
+final_objective=0.0
+runtime_seconds=66.806 iterations=48 solved=True
+
+mbandit_parameters:
+iterations_till_weight_update=10
+reaction_factor=0.2
+beta_softmax=1.5
+equal_move_allowed_freezeout=15
+late_phase_weight=10000
+late_phase_strict_improvement=True
+annealing_temperature=4.875
+min_annealing_temperature=0.5
+time_decay_annealing=0.975
+binomial_p=0.2
+reshuffle_before_exploration=False
+reshuffle_only_in_early_phase=False
+global_timeout_seconds=1000
+minizinc_timeout_seconds=60
+exploration_after_stagnation=10
+number_of_consecutive_explorations=2
+exploratory_timeout_seconds=50
+solver_name=chuffed
+destroy_tabu_length=10
+
+last_schedule_shift_ids:
+day        0   1   2   3   4   5   6
+worker  0:   0   1   1   1   1   2   2
+worker  1:   0   0   3   3   3   3   0
+worker  2:   1   1   1   0   2   2   2
+worker  3:   2   2   0   1   1   1   0
+worker  4:   0   2   2   2   0   1   1
+worker  5:   2   3   3   2   2   0   0
+worker  6:   3   3   2   3   3   3   3
+
+violation_diagnostic_from_find_first_violation_after:
+none

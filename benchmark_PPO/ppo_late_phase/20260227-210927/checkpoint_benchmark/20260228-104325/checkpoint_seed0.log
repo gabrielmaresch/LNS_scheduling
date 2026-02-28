@@ -1,0 +1,449 @@
+run_dir=/Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-210927
+results_dir=/Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-210927/results
+checkpoint=checkpoint_seed0.pt
+seed=0
+runs_each=5
+timeout_seconds=150.0
+test_instances=Example6,Example12,Example13
+
+
+===== instance=Example6 run=1/5 checkpoint=checkpoint_seed0.pt =====
+Loaded checkpoint: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-210927/results/checkpoint_seed0.pt
+Loaded instance: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/Instances1-50/Example6.txt
+Detected state_dim=8
+iter=1 time=2.072s destroy=destroy_day repair=repair_chuffed_fast objective=None->39.0 accepted=True reward=+10.075
+iter=2 time=6.165s destroy=destroy_worst_days_30pct repair=repair_gecode_fast objective=39.0->34.0 accepted=True reward=+11.368
+iter=3 time=6.864s destroy=destroy_worst_days_10pct repair=repair_gecode_long objective=34.0->18.0 accepted=True reward=+14.864
+iter=4 time=7.614s destroy=destroy_max_border_work repair=repair_gecode_fast objective=18.0->18.0 accepted=True reward=+0.158
+iter=5 time=8.307s destroy=destroy_worker repair=repair_gecode_fast objective=18.0->17.0 accepted=True reward=+10.722
+iter=6 time=8.900s destroy=destroy_max_border_shift_2 repair=repair_gecode_fast objective=17.0->17.0 accepted=True reward=+0.167
+iter=7 time=9.473s destroy=destroy_max_border_shift_3 repair=repair_gecode_fast objective=17.0->17.0 accepted=True reward=+0.167
+iter=8 time=10.129s destroy=destroy_worst_days_10pct repair=repair_chuffed_fast objective=17.0->13.0 accepted=True reward=+12.567
+iter=9 time=10.856s destroy=destroy_worst_workers_10pct repair=repair_gecode_long objective=13.0->11.0 accepted=True reward=+11.788
+iter=10 time=11.503s destroy=destroy_worker repair=repair_gecode_fast objective=11.0->11.0 accepted=False reward=+0.000
+iter=11 time=12.089s destroy=destroy_max_border_shift_3 repair=repair_gecode_fast objective=11.0->11.0 accepted=False reward=+0.000
+iter=12 time=12.747s destroy=destroy_day repair=repair_gecode_fast objective=11.0->11.0 accepted=False reward=+0.000
+iter=13 time=13.411s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=11.0->11.0 accepted=False reward=+0.000
+iter=14 time=14.195s destroy=destroy_day repair=repair_gecode_long objective=11.0->11.0 accepted=False reward=+0.000
+iter=15 time=15.052s destroy=destroy_day repair=repair_gecode_fast objective=11.0->11.0 accepted=False reward=+0.000
+iter=16 time=16.631s destroy=destroy_day repair=repair_gecode_long objective=11.0->11.0 accepted=False reward=+0.000
+iter=17 time=17.393s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective=11.0->9.0 accepted=True reward=+12.118
+iter=18 time=18.064s destroy=destroy_max_border_off repair=repair_gecode_fast objective=9.0->9.0 accepted=False reward=+0.000
+iter=19 time=18.783s destroy=destroy_random_window_20pct repair=repair_gecode_long objective=9.0->9.0 accepted=False reward=+0.000
+iter=20 time=19.612s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=9.0->9.0 accepted=False reward=+0.000
+iter=21 time=20.285s destroy=destroy_max_border_shift_2 repair=repair_gecode_fast objective=9.0->9.0 accepted=False reward=+0.000
+iter=22 time=21.602s destroy=destroy_random_days_20pct repair=repair_gecode_fast objective=9.0->7.0 accepted=True reward=+12.375
+iter=23 time=22.515s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=7.0->7.0 accepted=False reward=+0.000
+iter=24 time=23.543s destroy=destroy_random_window_20pct repair=repair_gecode_long objective=7.0->7.0 accepted=False reward=+0.000
+iter=25 time=24.367s destroy=destroy_max_border_off repair=repair_gecode_fast objective=7.0->7.0 accepted=False reward=+0.000
+iter=26 time=25.050s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective=7.0->7.0 accepted=False reward=+0.000
+iter=27 time=30.045s destroy=destroy_worst_workers_30pct repair=repair_gecode_fast objective=7.0->4.0 accepted=True reward=+13.600
+iter=28 time=30.600s destroy=destroy_max_border_shift_3 repair=repair_gecode_fast objective=4.0->4.0 accepted=False reward=+0.000
+iter=29 time=31.211s destroy=destroy_worst_days_10pct repair=repair_chuffed_fast objective=4.0->4.0 accepted=False reward=+0.000
+iter=30 time=31.913s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_long objective=4.0->2.0 accepted=True reward=+23.000
+iter=31 time=32.466s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_long objective=2.0->2.0 accepted=False reward=+0.000
+iter=32 time=33.022s destroy=destroy_max_border_shift_1 repair=repair_gecode_long objective=2.0->2.0 accepted=False reward=+0.000
+iter=33 time=33.586s destroy=destroy_max_border_shift_3 repair=repair_gecode_fast objective=2.0->2.0 accepted=False reward=+0.000
+iter=34 time=40.038s destroy=destroy_worst_days_30pct repair=repair_gecode_fast objective=2.0->15.0 accepted=False reward=+0.000
+iter=35 time=40.682s destroy=destroy_worker repair=repair_gecode_fast objective=2.0->2.0 accepted=False reward=+0.000
+iter=36 time=41.666s destroy=destroy_random_days_20pct repair=repair_gecode_long objective=2.0->1.0 accepted=True reward=+17.500
+iter=37 time=42.251s destroy=destroy_max_border_off repair=repair_gecode_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=38 time=42.789s destroy=destroy_max_border_shift_2 repair=repair_chuffed_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=39 time=43.373s destroy=destroy_max_border_off repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=40 time=44.347s destroy=destroy_random_workers_20pct repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=41 time=44.961s destroy=destroy_max_border_work repair=repair_gecode_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=42 time=45.529s destroy=destroy_max_border_shift_1 repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=43 time=46.100s destroy=destroy_max_border_off repair=repair_gecode_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=44 time=46.688s destroy=destroy_max_border_shift_3 repair=repair_gecode_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=45 time=47.305s destroy=destroy_day repair=repair_gecode_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=46 time=47.919s destroy=destroy_max_border_work repair=repair_gecode_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=47 time=48.445s destroy=destroy_max_border_shift_2 repair=repair_chuffed_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=48 time=69.114s destroy=destroy_worst_days_30pct repair=repair_gecode_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=49 time=69.786s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=50 time=70.681s destroy=destroy_random_workers_20pct repair=repair_chuffed_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=51 time=71.269s destroy=destroy_max_border_off repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=52 time=72.226s destroy=destroy_random_workers_20pct repair=repair_chuffed_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=53 time=72.891s destroy=destroy_worst_days_10pct repair=repair_chuffed_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=54 time=73.632s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=55 time=74.483s destroy=destroy_random_workers_20pct repair=repair_chuffed_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=56 time=75.142s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+solved=False stop_iter=56 reason=stagnation_limit
+run_completed=True runtime=75.142s best_objective=1.0 current_objective=1.0
+
+===== instance=Example6 run=2/5 checkpoint=checkpoint_seed0.pt =====
+Loaded checkpoint: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-210927/results/checkpoint_seed0.pt
+Loaded instance: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/Instances1-50/Example6.txt
+Detected state_dim=8
+iter=1 time=0.931s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=None->41.0 accepted=True reward=+10.071
+iter=2 time=4.478s destroy=destroy_worst_workers_30pct repair=repair_gecode_fast objective=41.0->37.0 accepted=True reward=+11.055
+iter=3 time=5.281s destroy=destroy_day repair=repair_gecode_fast objective=37.0->35.0 accepted=True reward=+10.624
+iter=4 time=8.768s destroy=destroy_worst_days_30pct repair=repair_gecode_fast objective=35.0->26.0 accepted=True reward=+12.683
+iter=5 time=9.339s destroy=destroy_max_border_shift_3 repair=repair_gecode_fast objective=26.0->26.0 accepted=True reward=+0.111
+iter=6 time=9.943s destroy=destroy_max_border_shift_1 repair=repair_gecode_fast objective=26.0->26.0 accepted=True reward=+0.111
+iter=7 time=11.944s destroy=destroy_random_window_20pct repair=repair_gecode_long objective=26.0->19.0 accepted=True reward=+12.842
+iter=8 time=13.407s destroy=destroy_worst_workers_30pct repair=repair_gecode_fast objective=19.0->3.0 accepted=True reward=+19.171
+iter=9 time=14.103s destroy=destroy_day repair=repair_gecode_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=10 time=14.720s destroy=destroy_max_border_shift_1 repair=repair_gecode_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=11 time=15.508s destroy=destroy_random_days_20pct repair=repair_gecode_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=12 time=16.314s destroy=destroy_random_days_20pct repair=repair_gecode_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=13 time=16.854s destroy=destroy_max_border_work repair=repair_gecode_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=14 time=17.467s destroy=destroy_max_border_shift_1 repair=repair_gecode_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=15 time=18.133s destroy=destroy_day repair=repair_gecode_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=16 time=18.863s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=17 time=20.309s destroy=destroy_worst_workers_30pct repair=repair_chuffed_long objective=3.0->1.0 accepted=True reward=+23.500
+iter=18 time=21.059s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=19 time=22.679s destroy=destroy_worst_days_30pct repair=repair_gecode_long objective=1.0->2.0 accepted=False reward=+0.000
+iter=20 time=23.577s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=21 time=24.197s destroy=destroy_random_window_20pct repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=22 time=24.836s destroy=destroy_random_window_20pct repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=23 time=25.433s destroy=destroy_day repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=24 time=26.266s destroy=destroy_worst_workers_30pct repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=25 time=26.800s destroy=destroy_max_border_off repair=repair_gecode_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=26 time=27.337s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=27 time=27.925s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=28 time=28.534s destroy=destroy_max_border_shift_3 repair=repair_gecode_fast objective=1.0->1.0 accepted=False reward=+0.000
+iter=29 time=29.128s destroy=destroy_day repair=repair_chuffed_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=30 time=29.721s destroy=destroy_worst_workers_10pct repair=repair_gecode_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=31 time=30.462s destroy=destroy_worst_days_30pct repair=repair_chuffed_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=32 time=31.271s destroy=destroy_worst_days_30pct repair=repair_gecode_fast objective=1.0->2.0 accepted=False reward=+0.000
+iter=33 time=31.919s destroy=destroy_random_workers_20pct repair=repair_gecode_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=34 time=32.487s destroy=destroy_day repair=repair_chuffed_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=35 time=33.186s destroy=destroy_random_days_20pct repair=repair_chuffed_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=36 time=33.949s destroy=destroy_worst_workers_10pct repair=repair_gecode_long objective=1.0->1.0 accepted=False reward=+0.000
+iter=37 time=34.604s destroy=destroy_worst_workers_10pct repair=repair_chuffed_fast objective=1.0->1.0 accepted=False reward=+0.000
+solved=False stop_iter=37 reason=stagnation_limit
+run_completed=True runtime=34.605s best_objective=1.0 current_objective=1.0
+
+===== instance=Example6 run=3/5 checkpoint=checkpoint_seed0.pt =====
+Loaded checkpoint: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-210927/results/checkpoint_seed0.pt
+Loaded instance: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/Instances1-50/Example6.txt
+Detected state_dim=8
+iter=1 time=1.412s destroy=destroy_worst_workers_10pct repair=repair_gecode_long objective=None->32.0 accepted=True reward=+10.091
+iter=2 time=2.457s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=32.0->27.0 accepted=True reward=+11.670
+iter=3 time=5.352s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=27.0->18.0 accepted=True reward=+13.491
+iter=4 time=6.007s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=18.0->15.0 accepted=True reward=+11.854
+iter=5 time=6.608s destroy=destroy_max_border_shift_1 repair=repair_gecode_fast objective=15.0->15.0 accepted=False reward=+0.000
+iter=6 time=7.208s destroy=destroy_max_border_work repair=repair_gecode_fast objective=15.0->15.0 accepted=False reward=+0.000
+iter=7 time=8.007s destroy=destroy_worker repair=repair_gecode_fast objective=15.0->14.0 accepted=True reward=+10.867
+iter=8 time=8.698s destroy=destroy_day repair=repair_gecode_fast objective=14.0->11.0 accepted=True reward=+12.393
+iter=9 time=9.476s destroy=destroy_random_workers_20pct repair=repair_gecode_long objective=11.0->9.0 accepted=True reward=+12.118
+iter=10 time=10.210s destroy=destroy_random_window_20pct repair=repair_gecode_long objective=9.0->9.0 accepted=False reward=+0.000
+iter=11 time=11.006s destroy=destroy_random_workers_20pct repair=repair_gecode_fast objective=9.0->5.0 accepted=True reward=+14.500
+iter=12 time=11.873s destroy=destroy_random_window_20pct repair=repair_chuffed_fast objective=5.0->None accepted=False reward=-1.000
+iter=13 time=12.440s destroy=destroy_max_border_work repair=repair_gecode_fast objective=5.0->None accepted=False reward=-1.000
+iter=14 time=13.069s destroy=destroy_worst_workers_10pct repair=repair_gecode_long objective=5.0->None accepted=False reward=-1.000
+iter=15 time=13.744s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_long objective=5.0->None accepted=False reward=-1.000
+iter=16 time=14.398s destroy=destroy_worst_workers_10pct repair=repair_gecode_long objective=5.0->None accepted=False reward=-1.000
+iter=17 time=15.033s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=5.0->None accepted=False reward=-1.000
+iter=18 time=15.617s destroy=destroy_max_border_off repair=repair_gecode_fast objective=5.0->None accepted=False reward=-1.000
+iter=19 time=16.272s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=5.0->None accepted=False reward=-1.000
+iter=20 time=16.855s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=5.0->None accepted=False reward=-1.000
+iter=21 time=17.601s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective=5.0->None accepted=False reward=-1.000
+iter=22 time=18.835s destroy=destroy_random_window_20pct repair=repair_chuffed_long objective=5.0->None accepted=False reward=-1.000
+iter=23 time=19.385s destroy=destroy_max_border_shift_3 repair=repair_chuffed_fast objective=5.0->None accepted=False reward=-1.000
+iter=24 time=20.422s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_long objective=5.0->None accepted=False reward=-1.000
+iter=25 time=21.078s destroy=destroy_max_border_shift_1 repair=repair_gecode_long objective=5.0->None accepted=False reward=-1.000
+iter=26 time=21.719s destroy=destroy_worst_days_10pct repair=repair_chuffed_long objective=5.0->None accepted=False reward=-1.000
+iter=27 time=22.225s destroy=destroy_max_border_shift_3 repair=repair_chuffed_fast objective=5.0->None accepted=False reward=-1.000
+iter=28 time=22.894s destroy=destroy_random_window_20pct repair=repair_chuffed_long objective=5.0->None accepted=False reward=-1.000
+iter=29 time=23.525s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=5.0->None accepted=False reward=-1.000
+iter=30 time=24.270s destroy=destroy_random_workers_20pct repair=repair_chuffed_long objective=5.0->None accepted=False reward=-1.000
+iter=31 time=24.991s destroy=destroy_max_border_shift_3 repair=repair_chuffed_long objective=5.0->None accepted=False reward=-1.000
+solved=False stop_iter=31 reason=stagnation_limit
+run_completed=True runtime=24.991s best_objective=5.0 current_objective=5.0
+
+===== instance=Example6 run=4/5 checkpoint=checkpoint_seed0.pt =====
+Loaded checkpoint: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-210927/results/checkpoint_seed0.pt
+Loaded instance: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/Instances1-50/Example6.txt
+Detected state_dim=8
+iter=1 time=0.903s destroy=destroy_max_border_shift_1 repair=repair_gecode_fast objective=None->42.0 accepted=True reward=+10.070
+iter=2 time=1.683s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective=42.0->37.0 accepted=True reward=+11.269
+iter=3 time=2.594s destroy=destroy_day repair=repair_gecode_long objective=37.0->28.0 accepted=True reward=+12.536
+iter=4 time=4.035s destroy=destroy_random_days_20pct repair=repair_chuffed_long objective=28.0->18.0 accepted=True reward=+13.729
+iter=5 time=4.678s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=18.0->17.0 accepted=True reward=+10.722
+iter=6 time=5.894s destroy=destroy_random_workers_20pct repair=repair_chuffed_long objective=17.0->12.0 accepted=True reward=+13.172
+iter=7 time=9.011s destroy=destroy_worst_days_30pct repair=repair_gecode_fast objective=12.0->6.0 accepted=True reward=+15.429
+iter=8 time=9.615s destroy=destroy_max_border_shift_1 repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=9 time=10.280s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective=6.0->6.0 accepted=False reward=+0.000
+iter=10 time=11.250s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=11 time=11.913s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=12 time=12.649s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=13 time=13.449s destroy=destroy_random_days_20pct repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=14 time=14.046s destroy=destroy_max_border_shift_2 repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=15 time=17.094s destroy=destroy_worst_days_30pct repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=16 time=17.801s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective=6.0->6.0 accepted=False reward=+0.000
+iter=17 time=18.412s destroy=destroy_max_border_off repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=18 time=18.976s destroy=destroy_max_border_work repair=repair_chuffed_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=19 time=19.580s destroy=destroy_max_border_shift_1 repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=20 time=20.777s destroy=destroy_random_workers_20pct repair=repair_chuffed_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=21 time=21.417s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_long objective=6.0->6.0 accepted=False reward=+0.000
+iter=22 time=22.195s destroy=destroy_random_window_20pct repair=repair_gecode_long objective=6.0->6.0 accepted=False reward=+0.000
+iter=23 time=23.185s destroy=destroy_max_border_shift_2 repair=repair_chuffed_long objective=6.0->6.0 accepted=False reward=+0.000
+iter=24 time=23.792s destroy=destroy_max_border_shift_3 repair=repair_gecode_long objective=6.0->6.0 accepted=False reward=+0.000
+iter=25 time=24.393s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_long objective=6.0->6.0 accepted=False reward=+0.000
+iter=26 time=25.050s destroy=destroy_worst_days_10pct repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=27 time=25.604s destroy=destroy_max_border_shift_1 repair=repair_chuffed_fast objective=6.0->6.0 accepted=False reward=+0.000
+solved=False stop_iter=27 reason=stagnation_limit
+run_completed=True runtime=25.604s best_objective=6.0 current_objective=6.0
+
+===== instance=Example6 run=5/5 checkpoint=checkpoint_seed0.pt =====
+Loaded checkpoint: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-210927/results/checkpoint_seed0.pt
+Loaded instance: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/Instances1-50/Example6.txt
+Detected state_dim=8
+iter=1 time=10.650s destroy=destroy_worst_workers_30pct repair=repair_gecode_long objective=None->23.0 accepted=True reward=+10.125
+iter=2 time=11.403s destroy=destroy_max_border_off repair=repair_gecode_fast objective=23.0->23.0 accepted=True reward=+0.125
+iter=3 time=12.532s destroy=destroy_random_days_20pct repair=repair_gecode_long objective=23.0->14.0 accepted=True reward=+14.113
+iter=4 time=36.984s destroy=destroy_worst_workers_30pct repair=repair_gecode_long objective=14.0->7.0 accepted=True reward=+15.375
+iter=5 time=37.636s destroy=destroy_max_border_shift_2 repair=repair_gecode_fast objective=7.0->7.0 accepted=False reward=+0.000
+iter=6 time=38.301s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=7.0->7.0 accepted=False reward=+0.000
+iter=7 time=39.117s destroy=destroy_random_days_20pct repair=repair_gecode_fast objective=7.0->7.0 accepted=False reward=+0.000
+iter=8 time=39.811s destroy=destroy_day repair=repair_gecode_fast objective=7.0->7.0 accepted=False reward=+0.000
+iter=9 time=40.415s destroy=destroy_max_border_work repair=repair_gecode_long objective=7.0->7.0 accepted=False reward=+0.000
+iter=10 time=41.304s destroy=destroy_worst_workers_10pct repair=repair_chuffed_fast objective=7.0->None accepted=False reward=-1.000
+iter=11 time=42.057s destroy=destroy_random_window_20pct repair=repair_gecode_fast objective=7.0->None accepted=False reward=-1.000
+iter=12 time=42.858s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=7.0->None accepted=False reward=-1.000
+iter=13 time=43.513s destroy=destroy_day repair=repair_gecode_long objective=7.0->None accepted=False reward=-1.000
+iter=14 time=44.122s destroy=destroy_max_border_shift_2 repair=repair_gecode_fast objective=7.0->None accepted=False reward=-1.000
+iter=15 time=44.741s destroy=destroy_max_border_work repair=repair_gecode_fast objective=7.0->None accepted=False reward=-1.000
+iter=16 time=45.686s destroy=destroy_random_workers_20pct repair=repair_chuffed_long objective=7.0->6.0 accepted=True reward=+11.429
+iter=17 time=46.346s destroy=destroy_day repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=18 time=47.011s destroy=destroy_day repair=repair_gecode_long objective=6.0->6.0 accepted=False reward=+0.000
+iter=19 time=47.682s destroy=destroy_day repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=20 time=48.411s destroy=destroy_max_border_shift_1 repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=21 time=49.046s destroy=destroy_day repair=repair_chuffed_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=22 time=49.699s destroy=destroy_max_border_off repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=23 time=50.312s destroy=destroy_max_border_shift_3 repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=24 time=51.050s destroy=destroy_day repair=repair_gecode_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=25 time=51.888s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective=6.0->6.0 accepted=False reward=+0.000
+iter=26 time=52.609s destroy=destroy_random_window_20pct repair=repair_gecode_long objective=6.0->6.0 accepted=False reward=+0.000
+iter=27 time=53.260s destroy=destroy_max_border_shift_3 repair=repair_gecode_long objective=6.0->6.0 accepted=False reward=+0.000
+iter=28 time=53.832s destroy=destroy_max_border_shift_3 repair=repair_chuffed_fast objective=6.0->6.0 accepted=False reward=+0.000
+iter=29 time=56.742s destroy=destroy_worst_workers_30pct repair=repair_chuffed_long objective=6.0->4.0 accepted=True reward=+12.600
+iter=30 time=57.699s destroy=destroy_random_days_20pct repair=repair_gecode_fast objective=4.0->3.0 accepted=True reward=+16.750
+iter=31 time=58.650s destroy=destroy_random_workers_20pct repair=repair_gecode_long objective=3.0->3.0 accepted=False reward=+0.000
+iter=32 time=59.217s destroy=destroy_max_border_shift_1 repair=repair_chuffed_long objective=3.0->3.0 accepted=False reward=+0.000
+iter=33 time=59.864s destroy=destroy_worst_days_10pct repair=repair_chuffed_long objective=3.0->3.0 accepted=False reward=+0.000
+iter=34 time=60.475s destroy=destroy_max_border_shift_2 repair=repair_gecode_long objective=3.0->3.0 accepted=False reward=+0.000
+iter=35 time=61.105s destroy=destroy_day repair=repair_chuffed_long objective=3.0->3.0 accepted=False reward=+0.000
+iter=36 time=61.712s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=37 time=62.322s destroy=destroy_max_border_shift_1 repair=repair_gecode_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=38 time=62.932s destroy=destroy_max_border_shift_2 repair=repair_gecode_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=39 time=63.648s destroy=destroy_day repair=repair_gecode_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=40 time=64.259s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=41 time=64.866s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_long objective=3.0->3.0 accepted=False reward=+0.000
+iter=42 time=65.648s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=43 time=66.253s destroy=destroy_max_border_shift_3 repair=repair_gecode_long objective=3.0->3.0 accepted=False reward=+0.000
+iter=44 time=66.962s destroy=destroy_random_window_20pct repair=repair_chuffed_long objective=3.0->3.0 accepted=False reward=+0.000
+iter=45 time=67.628s destroy=destroy_day repair=repair_chuffed_long objective=3.0->3.0 accepted=False reward=+0.000
+iter=46 time=68.304s destroy=destroy_day repair=repair_gecode_long objective=3.0->3.0 accepted=False reward=+0.000
+iter=47 time=69.427s destroy=destroy_worst_workers_30pct repair=repair_chuffed_fast objective=3.0->4.0 accepted=False reward=+0.000
+iter=48 time=70.103s destroy=destroy_worst_workers_10pct repair=repair_gecode_long objective=3.0->3.0 accepted=False reward=+0.000
+iter=49 time=70.672s destroy=destroy_max_border_shift_2 repair=repair_chuffed_fast objective=3.0->3.0 accepted=False reward=+0.000
+iter=50 time=71.231s destroy=destroy_max_border_off repair=repair_chuffed_fast objective=3.0->3.0 accepted=False reward=+0.000
+solved=False stop_iter=50 reason=stagnation_limit
+run_completed=True runtime=71.231s best_objective=3.0 current_objective=3.0
+
+===== instance=Example12 run=1/5 checkpoint=checkpoint_seed0.pt =====
+run_error=ValueError: Checkpoint requires unknown destroy operators: ['destroy_max_border_shift_3']
+
+===== instance=Example12 run=2/5 checkpoint=checkpoint_seed0.pt =====
+run_error=ValueError: Checkpoint requires unknown destroy operators: ['destroy_max_border_shift_3']
+
+===== instance=Example12 run=3/5 checkpoint=checkpoint_seed0.pt =====
+run_error=ValueError: Checkpoint requires unknown destroy operators: ['destroy_max_border_shift_3']
+
+===== instance=Example12 run=4/5 checkpoint=checkpoint_seed0.pt =====
+run_error=ValueError: Checkpoint requires unknown destroy operators: ['destroy_max_border_shift_3']
+
+===== instance=Example12 run=5/5 checkpoint=checkpoint_seed0.pt =====
+run_error=ValueError: Checkpoint requires unknown destroy operators: ['destroy_max_border_shift_3']
+
+===== instance=Example13 run=1/5 checkpoint=checkpoint_seed0.pt =====
+Loaded checkpoint: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-210927/results/checkpoint_seed0.pt
+Loaded instance: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/Instances1-50/Example13.txt
+Detected state_dim=8
+iter=1 time=0.983s destroy=destroy_max_border_shift_3 repair=repair_gecode_fast objective=None->102.0 accepted=True reward=+10.029
+iter=2 time=4.514s destroy=destroy_day repair=repair_gecode_fast objective=102.0->89.0 accepted=True reward=+11.308
+iter=3 time=7.355s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=89.0->76.0 accepted=True reward=+11.500
+iter=4 time=8.433s destroy=destroy_max_border_shift_1 repair=repair_chuffed_long objective=76.0->76.0 accepted=True reward=+0.039
+iter=5 time=11.971s destroy=destroy_random_workers_20pct repair=repair_gecode_fast objective=76.0->99.0 accepted=False reward=+0.000
+iter=6 time=27.475s destroy=destroy_worst_workers_10pct repair=repair_gecode_long objective=76.0->68.0 accepted=True reward=+11.096
+iter=7 time=28.320s destroy=destroy_max_border_off repair=repair_gecode_fast objective=68.0->64.0 accepted=True reward=+10.634
+iter=8 time=29.665s destroy=destroy_forbidden_sequences_30pct repair=repair_chuffed_fast objective=64.0->61.0 accepted=True reward=+10.517
+iter=9 time=30.353s destroy=destroy_max_border_shift_1 repair=repair_gecode_long objective=61.0->61.0 accepted=True reward=+0.048
+iter=10 time=33.845s destroy=destroy_day repair=repair_gecode_fast objective=61.0->58.0 accepted=True reward=+10.543
+iter=11 time=34.662s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_long objective=58.0->57.0 accepted=True reward=+10.224
+iter=12 time=35.369s destroy=destroy_max_border_work repair=repair_gecode_long objective=57.0->57.0 accepted=True reward=+0.052
+iter=13 time=36.354s destroy=destroy_worker repair=repair_chuffed_long objective=57.0->56.0 accepted=True reward=+10.228
+iter=14 time=39.902s destroy=destroy_random_days_20pct repair=repair_gecode_fast objective=56.0->89.0 accepted=False reward=+0.000
+iter=15 time=43.411s destroy=destroy_day repair=repair_gecode_fast objective=56.0->70.0 accepted=False reward=+0.000
+iter=16 time=47.011s destroy=destroy_worst_workers_30pct repair=repair_gecode_fast objective=56.0->123.0 accepted=False reward=+0.000
+iter=17 time=50.664s destroy=destroy_worst_days_30pct repair=repair_gecode_fast objective=56.0->118.0 accepted=False reward=+0.000
+iter=18 time=51.463s destroy=destroy_worker repair=repair_gecode_fast objective=56.0->55.0 accepted=True reward=+10.232
+iter=19 time=52.164s destroy=destroy_max_border_off repair=repair_gecode_fast objective=55.0->55.0 accepted=True reward=+0.054
+iter=20 time=52.855s destroy=destroy_max_border_shift_2 repair=repair_gecode_fast objective=55.0->55.0 accepted=True reward=+0.054
+iter=21 time=68.371s destroy=destroy_day repair=repair_gecode_long objective=55.0->65.0 accepted=False reward=+0.000
+iter=22 time=72.340s destroy=destroy_worst_workers_30pct repair=repair_gecode_fast objective=55.0->130.0 accepted=False reward=+0.000
+iter=23 time=88.172s destroy=destroy_day repair=repair_chuffed_long objective=55.0->70.0 accepted=False reward=+0.000
+iter=24 time=92.220s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=55.0->183.0 accepted=False reward=+0.000
+iter=25 time=96.233s destroy=destroy_worst_workers_30pct repair=repair_gecode_fast objective=55.0->131.0 accepted=False reward=+0.000
+iter=26 time=97.550s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=55.0->52.0 accepted=True reward=+10.602
+iter=27 time=98.529s destroy=destroy_max_border_shift_2 repair=repair_gecode_long objective=52.0->52.0 accepted=True reward=+0.057
+iter=28 time=99.694s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=52.0->49.0 accepted=True reward=+10.637
+iter=29 time=101.868s destroy=destroy_worker repair=repair_gecode_fast objective=49.0->42.0 accepted=True reward=+11.498
+iter=30 time=103.102s destroy=destroy_max_border_off repair=repair_gecode_fast objective=42.0->42.0 accepted=True reward=+0.070
+iter=31 time=119.198s destroy=destroy_worst_workers_30pct repair=repair_gecode_long objective=42.0->122.0 accepted=False reward=+0.000
+iter=32 time=135.199s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective=42.0->76.0 accepted=False reward=+0.000
+iter=33 time=139.512s destroy=destroy_random_days_20pct repair=repair_gecode_fast objective=42.0->100.0 accepted=False reward=+0.000
+iter=34 time=143.012s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=42.0->41.0 accepted=True reward=+10.310
+iter=35 time=143.861s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_long objective=41.0->41.0 accepted=True reward=+0.071
+iter=36 time=145.188s destroy=destroy_forbidden_sequences_30pct repair=repair_chuffed_long objective=41.0->41.0 accepted=True reward=+0.071
+iter=37 time=152.054s destroy=destroy_worst_workers_10pct repair=repair_gecode_long objective=41.0->31.0 accepted=True reward=+12.533
+solved=False stop_time=152.054s reason=timeout
+run_completed=True runtime=152.054s best_objective=31.0 current_objective=31.0
+
+===== instance=Example13 run=2/5 checkpoint=checkpoint_seed0.pt =====
+Loaded checkpoint: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-210927/results/checkpoint_seed0.pt
+Loaded instance: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/Instances1-50/Example13.txt
+Detected state_dim=8
+iter=1 time=3.984s destroy=destroy_random_workers_20pct repair=repair_gecode_fast objective=None->105.0 accepted=True reward=+10.028
+iter=2 time=4.625s destroy=destroy_max_border_shift_1 repair=repair_gecode_fast objective=105.0->105.0 accepted=True reward=+0.028
+iter=3 time=5.289s destroy=destroy_max_border_work repair=repair_gecode_fast objective=105.0->105.0 accepted=True reward=+0.028
+iter=4 time=7.306s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=105.0->86.0 accepted=True reward=+11.844
+iter=5 time=8.416s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=86.0->63.0 accepted=True reward=+12.721
+iter=6 time=11.938s destroy=destroy_random_days_20pct repair=repair_gecode_fast objective=63.0->102.0 accepted=False reward=+0.000
+iter=7 time=27.481s destroy=destroy_day repair=repair_gecode_long objective=63.0->66.0 accepted=False reward=+0.000
+iter=8 time=31.012s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=63.0->160.0 accepted=False reward=+0.000
+iter=9 time=46.621s destroy=destroy_random_window_20pct repair=repair_gecode_long objective=63.0->112.0 accepted=False reward=+0.000
+iter=10 time=50.105s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=63.0->88.0 accepted=False reward=+0.000
+iter=11 time=53.599s destroy=destroy_day repair=repair_gecode_fast objective=63.0->76.0 accepted=False reward=+0.000
+iter=12 time=54.260s destroy=destroy_max_border_shift_1 repair=repair_gecode_long objective=63.0->63.0 accepted=True reward=+0.047
+iter=13 time=57.841s destroy=destroy_worst_workers_30pct repair=repair_gecode_fast objective=63.0->109.0 accepted=False reward=+0.000
+iter=14 time=61.383s destroy=destroy_day repair=repair_gecode_fast objective=63.0->76.0 accepted=False reward=+0.000
+iter=15 time=64.837s destroy=destroy_day repair=repair_gecode_fast objective=63.0->67.0 accepted=False reward=+0.000
+iter=16 time=80.321s destroy=destroy_day repair=repair_gecode_long objective=63.0->62.0 accepted=True reward=+10.206
+iter=17 time=95.865s destroy=destroy_random_workers_20pct repair=repair_gecode_long objective=62.0->77.0 accepted=False reward=+0.000
+iter=18 time=99.645s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=62.0->105.0 accepted=False reward=+0.000
+iter=19 time=103.226s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=62.0->85.0 accepted=False reward=+0.000
+iter=20 time=107.010s destroy=destroy_worst_workers_30pct repair=repair_gecode_fast objective=62.0->126.0 accepted=False reward=+0.000
+iter=21 time=110.603s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=62.0->61.0 accepted=True reward=+10.210
+iter=22 time=114.197s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=61.0->45.0 accepted=True reward=+12.688
+iter=23 time=115.128s destroy=destroy_worker repair=repair_gecode_fast objective=45.0->42.0 accepted=True reward=+10.736
+iter=24 time=118.779s destroy=destroy_day repair=repair_gecode_fast objective=42.0->66.0 accepted=False reward=+0.000
+iter=25 time=119.627s destroy=destroy_max_border_off repair=repair_gecode_fast objective=42.0->39.0 accepted=True reward=+10.789
+iter=26 time=121.622s destroy=destroy_worst_days_10pct repair=repair_gecode_fast objective=39.0->32.0 accepted=True reward=+11.886
+iter=27 time=125.215s destroy=destroy_random_window_20pct repair=repair_gecode_fast objective=32.0->52.0 accepted=False reward=+0.000
+iter=28 time=128.985s destroy=destroy_random_window_20pct repair=repair_gecode_fast objective=32.0->92.0 accepted=False reward=+0.000
+iter=29 time=129.829s destroy=destroy_max_border_off repair=repair_gecode_long objective=32.0->32.0 accepted=True reward=+0.091
+iter=30 time=131.974s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=32.0->30.0 accepted=True reward=+10.722
+iter=31 time=147.723s destroy=destroy_random_window_20pct repair=repair_gecode_long objective=30.0->75.0 accepted=False reward=+0.000
+iter=32 time=163.367s destroy=destroy_worst_days_30pct repair=repair_gecode_long objective=30.0->114.0 accepted=False reward=+0.000
+solved=False stop_time=163.367s reason=timeout
+run_completed=True runtime=163.367s best_objective=30.0 current_objective=30.0
+
+===== instance=Example13 run=3/5 checkpoint=checkpoint_seed0.pt =====
+Loaded checkpoint: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-210927/results/checkpoint_seed0.pt
+Loaded instance: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/Instances1-50/Example13.txt
+Detected state_dim=8
+iter=1 time=4.592s destroy=destroy_worst_workers_30pct repair=repair_chuffed_fast objective=None->172.0 accepted=True reward=+10.017
+iter=2 time=8.374s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=172.0->230.0 accepted=False reward=+0.000
+iter=3 time=23.879s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective=172.0->223.0 accepted=False reward=+0.000
+iter=4 time=25.445s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_long objective=172.0->155.0 accepted=True reward=+11.008
+iter=5 time=40.990s destroy=destroy_day repair=repair_gecode_long objective=155.0->108.0 accepted=True reward=+13.060
+iter=6 time=41.814s destroy=destroy_max_border_work repair=repair_gecode_fast objective=108.0->108.0 accepted=True reward=+0.028
+iter=7 time=45.432s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=108.0->93.0 accepted=True reward=+11.421
+iter=8 time=49.108s destroy=destroy_worst_days_10pct repair=repair_gecode_fast objective=93.0->97.0 accepted=False reward=+0.000
+iter=9 time=50.172s destroy=destroy_worker repair=repair_gecode_fast objective=93.0->91.0 accepted=True reward=+10.248
+iter=10 time=53.763s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=91.0->75.0 accepted=True reward=+11.798
+iter=11 time=54.828s destroy=destroy_worker repair=repair_gecode_long objective=75.0->71.0 accepted=True reward=+10.575
+iter=12 time=58.435s destroy=destroy_worst_workers_30pct repair=repair_gecode_fast objective=71.0->115.0 accepted=False reward=+0.000
+iter=13 time=62.041s destroy=destroy_random_days_20pct repair=repair_gecode_fast objective=71.0->104.0 accepted=False reward=+0.000
+iter=14 time=62.922s destroy=destroy_max_border_work repair=repair_gecode_long objective=71.0->71.0 accepted=True reward=+0.042
+iter=15 time=66.599s destroy=destroy_worst_workers_30pct repair=repair_gecode_fast objective=71.0->115.0 accepted=False reward=+0.000
+iter=16 time=67.449s destroy=destroy_worker repair=repair_gecode_long objective=71.0->71.0 accepted=True reward=+0.042
+iter=17 time=71.145s destroy=destroy_worst_workers_30pct repair=repair_gecode_fast objective=71.0->115.0 accepted=False reward=+0.000
+iter=18 time=74.854s destroy=destroy_random_window_20pct repair=repair_gecode_fast objective=71.0->113.0 accepted=False reward=+0.000
+iter=19 time=76.044s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_long objective=71.0->65.0 accepted=True reward=+10.891
+iter=20 time=79.767s destroy=destroy_worst_days_30pct repair=repair_gecode_fast objective=65.0->128.0 accepted=False reward=+0.000
+iter=21 time=83.324s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=65.0->125.0 accepted=False reward=+0.000
+iter=22 time=84.119s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_fast objective=65.0->61.0 accepted=True reward=+10.664
+iter=23 time=99.777s destroy=destroy_worst_workers_30pct repair=repair_gecode_long objective=61.0->109.0 accepted=False reward=+0.000
+iter=24 time=100.644s destroy=destroy_max_border_work repair=repair_gecode_fast objective=61.0->61.0 accepted=True reward=+0.048
+iter=25 time=104.266s destroy=destroy_worst_days_30pct repair=repair_gecode_fast objective=61.0->126.0 accepted=False reward=+0.000
+iter=26 time=107.918s destroy=destroy_worst_days_10pct repair=repair_chuffed_fast objective=61.0->79.0 accepted=False reward=+0.000
+iter=27 time=111.424s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=61.0->52.0 accepted=True reward=+11.532
+iter=28 time=114.959s destroy=destroy_random_workers_20pct repair=repair_gecode_fast objective=52.0->83.0 accepted=False reward=+0.000
+iter=29 time=115.983s destroy=destroy_max_border_off repair=repair_gecode_long objective=52.0->32.0 accepted=True reward=+13.937
+iter=30 time=119.512s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=32.0->30.0 accepted=True reward=+10.722
+iter=31 time=120.576s destroy=destroy_max_border_shift_3 repair=repair_gecode_fast objective=30.0->30.0 accepted=True reward=+0.097
+iter=32 time=133.925s destroy=destroy_day repair=repair_gecode_long objective=30.0->26.0 accepted=True reward=+11.444
+iter=33 time=134.840s destroy=destroy_worker repair=repair_gecode_long objective=26.0->24.0 accepted=True reward=+10.889
+iter=34 time=150.425s destroy=destroy_worst_days_10pct repair=repair_gecode_long objective=24.0->25.0 accepted=False reward=+0.000
+solved=False stop_time=150.425s reason=timeout
+run_completed=True runtime=150.425s best_objective=24.0 current_objective=24.0
+
+===== instance=Example13 run=4/5 checkpoint=checkpoint_seed0.pt =====
+Loaded checkpoint: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-210927/results/checkpoint_seed0.pt
+Loaded instance: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/Instances1-50/Example13.txt
+Detected state_dim=8
+iter=1 time=16.182s destroy=destroy_random_days_20pct repair=repair_gecode_long objective=None->102.0 accepted=True reward=+10.029
+iter=2 time=19.869s destroy=destroy_day repair=repair_gecode_fast objective=102.0->88.0 accepted=True reward=+11.406
+iter=3 time=20.593s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_long objective=88.0->88.0 accepted=True reward=+0.034
+iter=4 time=27.249s destroy=destroy_day repair=repair_gecode_long objective=88.0->83.0 accepted=True reward=+10.604
+iter=5 time=27.890s destroy=destroy_max_border_work repair=repair_gecode_long objective=83.0->83.0 accepted=True reward=+0.036
+iter=6 time=28.630s destroy=destroy_max_border_off repair=repair_gecode_fast objective=83.0->81.0 accepted=True reward=+10.278
+iter=7 time=32.228s destroy=destroy_worst_days_30pct repair=repair_gecode_fast objective=81.0->131.0 accepted=False reward=+0.000
+iter=8 time=47.855s destroy=destroy_worst_days_30pct repair=repair_gecode_long objective=81.0->124.0 accepted=False reward=+0.000
+iter=9 time=48.628s destroy=destroy_worker repair=repair_gecode_fast objective=81.0->79.0 accepted=True reward=+10.284
+iter=10 time=64.084s destroy=destroy_day repair=repair_gecode_long objective=79.0->80.0 accepted=False reward=+0.000
+iter=11 time=64.813s destroy=destroy_worker repair=repair_gecode_fast objective=79.0->77.0 accepted=True reward=+10.292
+iter=12 time=68.309s destroy=destroy_worst_days_10pct repair=repair_gecode_fast objective=77.0->71.0 accepted=True reward=+10.821
+iter=13 time=68.937s destroy=destroy_max_border_shift_1 repair=repair_gecode_long objective=71.0->71.0 accepted=True reward=+0.042
+iter=14 time=71.850s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=71.0->59.0 accepted=True reward=+11.740
+iter=15 time=75.392s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=59.0->99.0 accepted=False reward=+0.000
+iter=16 time=76.759s destroy=destroy_max_border_shift_1 repair=repair_chuffed_long objective=59.0->59.0 accepted=True reward=+0.050
+iter=17 time=80.423s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=59.0->56.0 accepted=True reward=+10.561
+iter=18 time=83.929s destroy=destroy_random_window_20pct repair=repair_gecode_fast objective=56.0->67.0 accepted=False reward=+0.000
+iter=19 time=84.710s destroy=destroy_worker repair=repair_gecode_long objective=56.0->53.0 accepted=True reward=+10.591
+iter=20 time=88.199s destroy=destroy_random_window_20pct repair=repair_gecode_fast objective=53.0->71.0 accepted=False reward=+0.000
+iter=21 time=103.702s destroy=destroy_random_window_20pct repair=repair_gecode_long objective=53.0->64.0 accepted=False reward=+0.000
+iter=22 time=107.203s destroy=destroy_worst_days_10pct repair=repair_gecode_fast objective=53.0->69.0 accepted=False reward=+0.000
+iter=23 time=107.947s destroy=destroy_max_border_work repair=repair_gecode_fast objective=53.0->53.0 accepted=True reward=+0.056
+iter=24 time=108.688s destroy=destroy_max_border_off repair=repair_gecode_fast objective=53.0->51.0 accepted=True reward=+10.435
+iter=25 time=109.447s destroy=destroy_max_border_shift_1 repair=repair_gecode_long objective=51.0->51.0 accepted=True reward=+0.058
+iter=26 time=110.096s destroy=destroy_max_border_off repair=repair_gecode_long objective=51.0->51.0 accepted=True reward=+0.058
+iter=27 time=113.701s destroy=destroy_worst_days_30pct repair=repair_gecode_fast objective=51.0->115.0 accepted=False reward=+0.000
+iter=28 time=117.307s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=51.0->65.0 accepted=False reward=+0.000
+iter=29 time=133.007s destroy=destroy_random_window_20pct repair=repair_gecode_long objective=51.0->100.0 accepted=False reward=+0.000
+iter=30 time=148.747s destroy=destroy_random_window_20pct repair=repair_gecode_long objective=51.0->102.0 accepted=False reward=+0.000
+iter=31 time=164.305s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective=51.0->135.0 accepted=False reward=+0.000
+solved=False stop_time=164.305s reason=timeout
+run_completed=True runtime=164.305s best_objective=51.0 current_objective=51.0
+
+===== instance=Example13 run=5/5 checkpoint=checkpoint_seed0.pt =====
+Loaded checkpoint: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/benchmark_PPO/ppo_late_phase/20260227-210927/results/checkpoint_seed0.pt
+Loaded instance: /Users/gab/Library/Mobile Documents/com~apple~CloudDocs/QuIST/ML/Optimization/Project 2/LNS_scheduling/Instances1-50/Example13.txt
+Detected state_dim=8
+iter=1 time=0.900s destroy=destroy_max_border_shift_2 repair=repair_gecode_long objective=None->99.0 accepted=True reward=+10.030
+iter=2 time=16.447s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective=99.0->118.0 accepted=False reward=+0.000
+iter=3 time=19.996s destroy=destroy_random_window_20pct repair=repair_gecode_fast objective=99.0->109.0 accepted=True reward=-0.983
+iter=4 time=23.483s destroy=destroy_day repair=repair_gecode_fast objective=109.0->113.0 accepted=False reward=+0.000
+iter=5 time=38.964s destroy=destroy_streak_around_worst_worker repair=repair_gecode_long objective=109.0->131.0 accepted=False reward=+0.000
+iter=6 time=54.536s destroy=destroy_worst_workers_30pct repair=repair_gecode_long objective=109.0->175.0 accepted=False reward=+0.000
+iter=7 time=70.074s destroy=destroy_random_window_20pct repair=repair_gecode_long objective=109.0->148.0 accepted=False reward=+0.000
+iter=8 time=73.742s destroy=destroy_random_window_20pct repair=repair_gecode_fast objective=109.0->126.0 accepted=False reward=+0.000
+iter=9 time=74.375s destroy=destroy_max_border_work repair=repair_gecode_long objective=109.0->109.0 accepted=True reward=+0.027
+iter=10 time=77.845s destroy=destroy_day repair=repair_gecode_fast objective=109.0->108.0 accepted=True reward=+0.619
+iter=11 time=93.418s destroy=destroy_worst_days_30pct repair=repair_gecode_long objective=108.0->119.0 accepted=False reward=+0.000
+iter=12 time=97.002s destroy=destroy_random_window_20pct repair=repair_gecode_fast objective=108.0->132.0 accepted=False reward=+0.000
+iter=13 time=112.483s destroy=destroy_worst_workers_10pct repair=repair_gecode_long objective=108.0->99.0 accepted=True reward=+1.363
+iter=14 time=129.320s destroy=destroy_streak_around_worst_worker repair=repair_chuffed_long objective=99.0->126.0 accepted=False reward=+0.000
+iter=15 time=133.280s destroy=destroy_random_days_20pct repair=repair_gecode_fast objective=99.0->143.0 accepted=False reward=+0.000
+iter=16 time=136.782s destroy=destroy_worst_workers_10pct repair=repair_gecode_fast objective=99.0->85.0 accepted=True reward=+11.449
+iter=17 time=141.187s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=85.0->84.0 accepted=True reward=+10.153
+iter=18 time=144.845s destroy=destroy_random_days_20pct repair=repair_gecode_fast objective=84.0->112.0 accepted=False reward=+0.000
+iter=19 time=148.333s destroy=destroy_streak_around_worst_worker repair=repair_gecode_fast objective=84.0->80.0 accepted=True reward=+10.513
+iter=20 time=149.192s destroy=destroy_forbidden_sequences_30pct repair=repair_gecode_long objective=80.0->74.0 accepted=True reward=+10.790
+iter=21 time=152.904s destroy=destroy_random_window_20pct repair=repair_gecode_fast objective=74.0->111.0 accepted=False reward=+0.000
+solved=False stop_time=152.904s reason=timeout
+run_completed=True runtime=152.904s best_objective=74.0 current_objective=74.0

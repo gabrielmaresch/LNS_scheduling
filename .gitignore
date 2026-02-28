@@ -1,9 +1,20 @@
-# Virtual environment
+# Virtual environments
 .venv/
+venv/
+env/
+.vscode/
+
 # Python cache
 __pycache__/
 *.py[cod]
+
 # Matplotlib cache
 .mpl_cache/
+
+# Generated analysis outputs (keep analysis_* roots, ignore their contents)
+analysis_*/*
+analysis_alns/*
+analysis_ppo/*
+
 # Ignore local MiniZinc instance variant
 rws_instance.mzn

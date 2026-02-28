@@ -212,7 +212,11 @@ def main() -> None:
             print(f"skip checkpoint no_test_instances: {checkpoint_name}")
             continue
 
+        # Recreate benchmark output dirs in case they were removed externally
+        # (e.g., cloud sync/cleanup) during long checkpoint runs.
+        out_dir.mkdir(parents=True, exist_ok=True)
         log_path = out_dir / f"{Path(checkpoint_name).stem}.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("w", encoding="utf-8") as log_handle:
             log_handle.write(f"run_dir={run_dir}\n")
             log_handle.write(f"results_dir={results_dir}\n")
