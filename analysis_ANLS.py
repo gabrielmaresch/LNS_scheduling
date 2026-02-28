@@ -1544,8 +1544,28 @@ def _operator_plot_id(operator_type: Any, operator_name: Any) -> str:
     return name
 
 
-def _plot_selection_heatmap(per_instance_operator_rows: Sequence[Dict[str, Any]], algorithm_a: str, algorithm_b: str, out_path: Path) -> None:
-    rows = list(per_instance_operator_rows)
+def _filter_operator_rows(
+    rows: Sequence[Dict[str, Any]],
+    operator_type: str | None,
+) -> List[Dict[str, Any]]:
+    if operator_type is None:
+        return list(rows)
+    normalized = operator_type.strip().lower()
+    return [
+        row
+        for row in rows
+        if str(row.get("operator_type", "")).strip().lower() == normalized
+    ]
+
+
+def _plot_selection_heatmap(
+    per_instance_operator_rows: Sequence[Dict[str, Any]],
+    algorithm_a: str,
+    algorithm_b: str,
+    out_path: Path,
+    operator_type: str | None = None,
+) -> None:
+    rows = _filter_operator_rows(per_instance_operator_rows, operator_type)
     if not rows:
         return
     for row in rows:
@@ -1582,6 +1602,10 @@ def _plot_selection_heatmap(per_instance_operator_rows: Sequence[Dict[str, Any]]
         ax.set_xlabel("Operator")
         ax.set_ylabel("Instance")
     fig.colorbar(im0, ax=axes, fraction=0.02, pad=0.02, label="Mean Selection Share")
+    if operator_type is None:
+        plt.suptitle("Operator Selection Heatmap", y=1.02)
+    else:
+        plt.suptitle(f"{operator_type.capitalize()} Operator Selection Heatmap", y=1.02)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -1592,8 +1616,9 @@ def _plot_selection_difference_heatmap(
     algorithm_a: str,
     algorithm_b: str,
     out_path: Path,
+    operator_type: str | None = None,
 ) -> None:
-    rows = list(per_instance_operator_rows)
+    rows = _filter_operator_rows(per_instance_operator_rows, operator_type)
     if not rows:
         return
     for row in rows:
@@ -1624,7 +1649,8 @@ def _plot_selection_difference_heatmap(
     plt.yticks(np.arange(len(instances)), instances)
     plt.xlabel("Operator")
     plt.ylabel("Instance")
-    plt.title(f"Operator Selection Share Difference ({algorithm_b} - {algorithm_a})")
+    prefix = f"{operator_type.capitalize()} " if operator_type else ""
+    plt.title(f"{prefix}Operator Selection Share Difference ({algorithm_b} - {algorithm_a})")
     plt.colorbar(im, fraction=0.03, pad=0.02, label="Mean Selection Share Difference")
     plt.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1632,8 +1658,14 @@ def _plot_selection_difference_heatmap(
     plt.close()
 
 
-def _plot_operator_improvement(global_operator_rows: Sequence[Dict[str, Any]], algorithm_a: str, algorithm_b: str, out_path: Path) -> None:
-    rows = list(global_operator_rows)
+def _plot_operator_improvement(
+    global_operator_rows: Sequence[Dict[str, Any]],
+    algorithm_a: str,
+    algorithm_b: str,
+    out_path: Path,
+    operator_type: str | None = None,
+) -> None:
+    rows = _filter_operator_rows(global_operator_rows, operator_type)
     if not rows:
         return
     for row in rows:
@@ -1651,7 +1683,8 @@ def _plot_operator_improvement(global_operator_rows: Sequence[Dict[str, Any]], a
     plt.bar(x + width / 2, [b_lookup.get(op, 0.0) for op in ops], width=width, label=algorithm_b)
     plt.xticks(x, ops, rotation=70, ha="right", fontsize=8)
     plt.ylabel("Mean Improvement Probability")
-    plt.title("Operator Improvement Probability Comparison")
+    prefix = f"{operator_type.capitalize()} " if operator_type else ""
+    plt.title(f"{prefix}Operator Improvement Probability Comparison")
     plt.legend()
     plt.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2129,14 +2162,28 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
     _plot_global_convergence(global_curve_rows, out_obj=plots_dir / "global_convergence_objective.png", out_gap=plots_dir / "global_convergence_gap.png")
     _plot_stability(per_instance_rows, algorithm_a=algo_a_label, algorithm_b=algo_b_label, out_path=plots_dir / "cv_stability_comparison.png")
     _plot_cv_distribution(per_instance_rows, algorithm_a=algo_a_label, algorithm_b=algo_b_label, out_path=plots_dir / "cv_distribution.png")
-    _plot_selection_heatmap(per_instance_op_rows, algorithm_a=algo_a_label, algorithm_b=algo_b_label, out_path=plots_dir / "operator_selection_heatmap.png")
-    _plot_selection_difference_heatmap(
-        per_instance_op_rows,
-        algorithm_a=algo_a_label,
-        algorithm_b=algo_b_label,
-        out_path=plots_dir / "operator_selection_difference_heatmap.png",
-    )
-    _plot_operator_improvement(global_op_rows, algorithm_a=algo_a_label, algorithm_b=algo_b_label, out_path=plots_dir / "operator_improvement_probability.png")
+    for operator_type in ("destroy", "repair"):
+        _plot_selection_heatmap(
+            per_instance_op_rows,
+            algorithm_a=algo_a_label,
+            algorithm_b=algo_b_label,
+            out_path=plots_dir / f"operator_selection_heatmap_{operator_type}.png",
+            operator_type=operator_type,
+        )
+        _plot_selection_difference_heatmap(
+            per_instance_op_rows,
+            algorithm_a=algo_a_label,
+            algorithm_b=algo_b_label,
+            out_path=plots_dir / f"operator_selection_difference_heatmap_{operator_type}.png",
+            operator_type=operator_type,
+        )
+        _plot_operator_improvement(
+            global_op_rows,
+            algorithm_a=algo_a_label,
+            algorithm_b=algo_b_label,
+            out_path=plots_dir / f"operator_improvement_probability_{operator_type}.png",
+            operator_type=operator_type,
+        )
     _plot_cactus(ttt_run_rows, out_path=plots_dir / "cactus_time_to_target.png")
 
     metadata = {

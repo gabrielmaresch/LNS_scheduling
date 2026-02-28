@@ -4,6 +4,7 @@ import csv
 from datetime import datetime
 import io
 from pathlib import Path
+import random
 import re
 import sys
 from contextlib import redirect_stdout
@@ -159,7 +160,155 @@ def _extract_test_instances(row: dict[str, str], pool: list[str]) -> list[str]:
     return sorted(inferred, key=_instance_sort_key)
 
 
-def main() -> None:
+def _ask_mode(default: str = "run") -> str:
+    raw = input(f"Benchmark mode run/direct [{default}]: ").strip().lower()
+    value = default if raw == "" else raw
+    if value not in {"run", "direct"}:
+        raise ValueError("benchmark mode must be 'run' or 'direct'")
+    return value
+
+
+def _default_checkpoint_path() -> Path:
+    checkpoint_dir = BASE_DIR / "PPO_checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    candidates = sorted(checkpoint_dir.glob("*.pt"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if candidates:
+        return candidates[0]
+    return checkpoint_dir / "drl_ppo_checkpoint.pt"
+
+
+def _resolve_checkpoint_path(raw: str) -> Path:
+    if raw == "":
+        return _default_checkpoint_path()
+    path = Path(raw).expanduser()
+    if path.is_absolute():
+        return path
+    direct = (Path.cwd() / path).resolve()
+    if direct.exists():
+        return direct
+    return (BASE_DIR / "PPO_checkpoints" / path).resolve()
+
+
+def _discover_instance_stems() -> list[str]:
+    instances_dir = BASE_DIR / "Instances1-50"
+    if not instances_dir.exists():
+        return []
+    stems = [path.stem for path in instances_dir.glob("Example*.txt")]
+    return sorted(stems, key=_instance_sort_key)
+
+
+def _ask_test_instances(default_pool: list[str]) -> list[str]:
+    preview = ", ".join(default_pool[:8]) if default_pool else "none"
+    raw = input(
+        "Test instances CSV (blank=all discovered "
+        f"{len(default_pool)}; e.g. Example2,Example9) [{preview}...]: "
+    ).strip()
+    if raw == "":
+        return list(default_pool)
+    selected = _parse_list_csv(raw)
+    return sorted(selected, key=_instance_sort_key)
+
+
+def _sample_test_instances(pool: list[str], count: int, sample_seed: int) -> list[str]:
+    if count > len(pool):
+        raise ValueError(f"requested {count} instances but only {len(pool)} discovered")
+    rng = random.Random(sample_seed)
+    return rng.sample(pool, k=count)
+
+
+def _set_eval_seed(seed: int) -> None:
+    random.seed(seed)
+    try:
+        import numpy as np
+
+        np.random.seed(seed)
+    except Exception:
+        pass
+    try:
+        import torch
+
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+    except Exception:
+        pass
+
+
+def _run_checkpoint_benchmark(
+    *,
+    run_dir: Path,
+    results_dir: Path,
+    checkpoint_name: str,
+    checkpoint_path: Path,
+    seed: str,
+    test_instances: list[str],
+    runs_each: int,
+    timeout_seconds: float,
+    out_dir: Path,
+    eval_seeds: list[int] | None = None,
+) -> None:
+    if not test_instances:
+        print(f"skip checkpoint no_test_instances: {checkpoint_name}")
+        return
+
+    # Recreate benchmark output dirs in case they were removed externally
+    # (e.g., cloud sync/cleanup) during long checkpoint runs.
+    out_dir.mkdir(parents=True, exist_ok=True)
+    log_path = out_dir / f"{Path(checkpoint_name).stem}.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("w", encoding="utf-8") as log_handle:
+        log_handle.write(f"run_dir={run_dir}\n")
+        log_handle.write(f"results_dir={results_dir}\n")
+        log_handle.write(f"checkpoint={checkpoint_name}\n")
+        log_handle.write(f"seed={seed}\n")
+        log_handle.write(f"runs_each={runs_each}\n")
+        log_handle.write(f"timeout_seconds={timeout_seconds}\n")
+        if eval_seeds is not None:
+            log_handle.write("eval_seeds=" + ",".join(str(s) for s in eval_seeds) + "\n")
+        log_handle.write("test_instances=" + ",".join(test_instances) + "\n\n")
+
+        total = len(test_instances) * (len(eval_seeds) if eval_seeds is not None else runs_each)
+        counter = 0
+        for test_stem in test_instances:
+            instance_index = _instance_index_from_stem(test_stem)
+            if instance_index is None:
+                log_handle.write(f"skip instance invalid_name={test_stem}\n")
+                continue
+
+            run_tokens = (
+                [f"seed={eval_seed}" for eval_seed in eval_seeds]
+                if eval_seeds is not None
+                else [f"run={rep}/{runs_each}" for rep in range(1, runs_each + 1)]
+            )
+            for run_idx, run_token in enumerate(run_tokens, start=1):
+                counter += 1
+                if eval_seeds is not None:
+                    eval_seed = eval_seeds[run_idx - 1]
+                    _set_eval_seed(eval_seed)
+                print(
+                    f"checkpoint={checkpoint_name} seed={seed} "
+                    f"instance={test_stem} {run_token} [{counter}/{total}]"
+                )
+                log_handle.write(
+                    f"\n===== instance={test_stem} {run_token} checkpoint={checkpoint_name} =====\n"
+                )
+                capture = io.StringIO()
+                try:
+                    with redirect_stdout(capture):
+                        run_checkpoint(
+                            example_number=instance_index,
+                            checkpoint_path=checkpoint_path,
+                            timeout_seconds=timeout_seconds,
+                            show_final_schedule=False,
+                        )
+                except Exception as exc:
+                    capture.write(f"run_error={type(exc).__name__}: {exc}\n")
+                log_handle.write(capture.getvalue())
+
+    print(f"wrote logfile: {log_path}")
+
+
+def _main_run_mode(runs_each: int, timeout_seconds: float) -> None:
     default_variant = _latest_variant()
     variant = _ask_variant(default=default_variant)
     latest_run = _latest_run_dir(variant)
@@ -182,9 +331,6 @@ def main() -> None:
     config = _read_config(config_path)
     pool_instances = _parse_list_csv(config.get("pool_instances", ""))
 
-    runs_each = _ask_int("Number of runs per test instance", default=10, minimum=1)
-    timeout_seconds = _ask_float("Timeout per checkpoint run (seconds)", default=120.0, minimum=0.1)
-
     out_dir = run_dir / "checkpoint_benchmark" / datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -205,60 +351,78 @@ def main() -> None:
         if not checkpoint_path.exists():
             print(f"skip checkpoint missing: {checkpoint_path}")
             continue
-
         seed = row.get("seed", "na")
         test_instances = _extract_test_instances(row=row, pool=pool_instances)
-        if not test_instances:
-            print(f"skip checkpoint no_test_instances: {checkpoint_name}")
-            continue
-
-        # Recreate benchmark output dirs in case they were removed externally
-        # (e.g., cloud sync/cleanup) during long checkpoint runs.
-        out_dir.mkdir(parents=True, exist_ok=True)
-        log_path = out_dir / f"{Path(checkpoint_name).stem}.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("w", encoding="utf-8") as log_handle:
-            log_handle.write(f"run_dir={run_dir}\n")
-            log_handle.write(f"results_dir={results_dir}\n")
-            log_handle.write(f"checkpoint={checkpoint_name}\n")
-            log_handle.write(f"seed={seed}\n")
-            log_handle.write(f"runs_each={runs_each}\n")
-            log_handle.write(f"timeout_seconds={timeout_seconds}\n")
-            log_handle.write("test_instances=" + ",".join(test_instances) + "\n\n")
-
-            total = len(test_instances) * runs_each
-            counter = 0
-            for test_stem in test_instances:
-                instance_index = _instance_index_from_stem(test_stem)
-                if instance_index is None:
-                    log_handle.write(f"skip instance invalid_name={test_stem}\n")
-                    continue
-
-                for rep in range(1, runs_each + 1):
-                    counter += 1
-                    print(
-                        f"checkpoint={checkpoint_name} seed={seed} "
-                        f"instance={test_stem} run={rep}/{runs_each} [{counter}/{total}]"
-                    )
-                    log_handle.write(
-                        f"\n===== instance={test_stem} run={rep}/{runs_each} checkpoint={checkpoint_name} =====\n"
-                    )
-                    capture = io.StringIO()
-                    try:
-                        with redirect_stdout(capture):
-                            run_checkpoint(
-                                example_number=instance_index,
-                                checkpoint_path=checkpoint_path,
-                                timeout_seconds=timeout_seconds,
-                                show_final_schedule=False,
-                            )
-                    except Exception as exc:
-                        capture.write(f"run_error={type(exc).__name__}: {exc}\n")
-                    log_handle.write(capture.getvalue())
-
-        print(f"wrote logfile: {log_path}")
+        _run_checkpoint_benchmark(
+            run_dir=run_dir,
+            results_dir=results_dir,
+            checkpoint_name=checkpoint_name,
+            checkpoint_path=checkpoint_path,
+            seed=seed,
+            test_instances=test_instances,
+            runs_each=runs_each,
+            timeout_seconds=timeout_seconds,
+            out_dir=out_dir,
+        )
 
     print(f"Benchmark complete. Logs directory: {out_dir}")
+
+
+def _main_direct_mode(timeout_seconds: float) -> None:
+    default_path = _default_checkpoint_path()
+    checkpoint_input = input(f"Checkpoint path [{default_path}]: ").strip()
+    checkpoint_path = _resolve_checkpoint_path(checkpoint_input)
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"checkpoint not found: {checkpoint_path}")
+
+    default_pool = _discover_instance_stems()
+    if not default_pool:
+        raise ValueError("no instances discovered in Instances1-50")
+    n_random_instances = _ask_int("Number of random test instances", default=10, minimum=1)
+    sample_seed = _ask_int("Random-instance sampler seed", default=0, minimum=0)
+    test_instances = _sample_test_instances(default_pool, n_random_instances, sample_seed)
+
+    n_eval_seeds = _ask_int("Number of evaluation seeds", default=3, minimum=1)
+    eval_seed_start = _ask_int("Evaluation seed start", default=0, minimum=0)
+    eval_seeds = [eval_seed_start + i for i in range(n_eval_seeds)]
+    print("Selected instances: " + ",".join(test_instances))
+    print("Evaluation seeds: " + ",".join(str(s) for s in eval_seeds))
+
+    if not test_instances:
+        raise ValueError("no test instances selected")
+
+    out_dir = (
+        Path(__file__).resolve().parent
+        / "manual_checkpoint_benchmark"
+        / datetime.now().strftime("%Y%m%d-%H%M%S")
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    checkpoint_name = checkpoint_path.name
+    _run_checkpoint_benchmark(
+        run_dir=checkpoint_path.parent,
+        results_dir=checkpoint_path.parent,
+        checkpoint_name=checkpoint_name,
+        checkpoint_path=checkpoint_path,
+        seed="direct",
+        test_instances=test_instances,
+        runs_each=len(eval_seeds),
+        timeout_seconds=timeout_seconds,
+        out_dir=out_dir,
+        eval_seeds=eval_seeds,
+    )
+
+    print(f"Benchmark complete. Logs directory: {out_dir}")
+
+
+def main() -> None:
+    mode = _ask_mode(default="run")
+    timeout_seconds = _ask_float("Timeout per checkpoint run (seconds)", default=120.0, minimum=0.1)
+    if mode == "direct":
+        _main_direct_mode(timeout_seconds=timeout_seconds)
+    else:
+        runs_each = _ask_int("Number of runs per test instance", default=10, minimum=1)
+        _main_run_mode(runs_each=runs_each, timeout_seconds=timeout_seconds)
 
 
 if __name__ == "__main__":

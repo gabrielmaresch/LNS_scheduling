@@ -125,7 +125,7 @@ def _build_solver(
 
     if state_dim == 8:
         repair_lib = _repair_library(ppo8._make_repair_operator, model_path)
-        destroy_lib = ppo8._build_destroy_library(instance=instance)
+        destroy_lib = ppo8._build_destroy_library(instance=instance, include_legacy=True)
         solver = ppo8.drl_alns(
             instance=instance,
             schedule=schedule,
@@ -137,7 +137,9 @@ def _build_solver(
                 setattr(solver, key, checkpoint[key])
     elif state_dim in (6, 7):
         repair_lib = _repair_library(ppo7._make_repair_operator, model_path)
-        destroy_lib = _legacy_destroy_library()
+        # Newer 7D checkpoints can contain static destroy names (e.g. *_10pct,
+        # destroy_max_border_*). Include both modern and legacy ops for compatibility.
+        destroy_lib = ppo7._build_destroy_library(instance=instance, include_legacy=True)
         solver = ppo7.drl_alns(
             instance=instance,
             schedule=schedule,
