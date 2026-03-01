@@ -18,3 +18,7 @@ analysis_ppo/*
 
 # Ignore local MiniZinc instance variant
 rws_instance.mzn
+
+# Additional instances
+Instances2000/
+

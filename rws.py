@@ -386,6 +386,40 @@ class RWS:
                     return worker_id, day_id, violation_type
             return None
 
+        def ordered_violation_hits(
+            self,
+            start_worker: int = 0,
+            start_day: int = 0,
+            max_hits: Optional[int] = None,
+        ) -> List[Tuple[int, int, str]]:
+            """Collect unique violations in flattened cyclic order using repeated first-hit scans."""
+            n_workers = self.instance.num_workers
+            n_days = self.instance.num_days
+            total_slots = n_workers * n_days
+            if total_slots <= 0:
+                return []
+
+            worker = int(start_worker) % n_workers
+            day = int(start_day) % n_days
+            seen: set[Tuple[int, int, str]] = set()
+            hits: List[Tuple[int, int, str]] = []
+            max_steps = total_slots if max_hits is None else max(0, int(max_hits))
+
+            for _ in range(max_steps):
+                hit = self.find_first_violation_after(worker, day)
+                if hit is None:
+                    break
+                key = (hit[0], hit[1], hit[2])
+                if key in seen:
+                    break
+                seen.add(key)
+                hits.append(key)
+                hit_idx = hit[0] * n_days + hit[1]
+                next_idx = (hit_idx + 1) % total_slots
+                worker, day = divmod(next_idx, n_days)
+
+            return hits
+
         # Helper methods for validity checks
 
         def _runs_for_worker_days(self, worker: int, day_condition) -> List[List[int]]:
@@ -550,6 +584,32 @@ class RWS:
         def display_validity(self) -> None:
             """Print whether the schedule is valid."""
             print("Schedule valid." if self.is_valid() else "Schedule invalid.")
+
+        def objective_value(
+            self,
+            model_path: str | Path | None = None,
+            solver_name: str = "chuffed",
+            sloppy: bool = False,
+            timeout_seconds: int = 10,
+            model_instance: Any | None = None,
+        ) -> float:
+            """Return MiniZinc objective value for this fully fixed schedule.
+
+            The schedule is evaluated by solving the model with all assignments fixed.
+            Raises RuntimeError if no solution/objective is produced under the timeout.
+            """
+            evaluator = rws_lns(instance=self.instance, incumbent=self)
+            evaluator._initialize_fixed_vars(self)
+            evaluator.repair_exact(
+                model_instance=model_instance,
+                model_path=model_path,
+                solver_name=solver_name,
+                sloppy=sloppy,
+                timeout_seconds=timeout_seconds,
+            )
+            if evaluator.contender_objective is None:
+                raise RuntimeError("objective evaluation did not return an objective value")
+            return float(evaluator.contender_objective)
 
 
 @dataclass

@@ -58,7 +58,7 @@ class MBandit:
     reaction_factor: float = 0.2
     beta_softmax: float = 1.5
     equal_move_allowed_freezeout: int = 15
-    late_phase_weight: int = 10000
+    late_phase_weight: int = 100
     late_phase_strict_improvement: bool = True
     
     ##### Simulated annealing for accepting subpar solutions
@@ -1270,26 +1270,10 @@ if __name__ == "__main__":
         snapshot_lines.append(f"worker {worker:>2}: {shifts}")
     snapshot_lines.append("")
     snapshot_lines.append("violation_diagnostic_from_find_first_violation_after:")
-    first_violation = final_schedule.find_first_violation_after(0, 0)
-    if first_violation is None:
+    ordered_hits = final_schedule.ordered_violation_hits(start_worker=0, start_day=0)
+    if not ordered_hits:
         snapshot_lines.append("none")
     else:
-        total_slots = final_inst.num_workers * final_inst.num_days
-        cursor_worker, cursor_day = 0, 0
-        seen: set[tuple[int, int, str]] = set()
-        ordered_hits: list[tuple[int, int, str]] = []
-        for _ in range(total_slots):
-            hit = final_schedule.find_first_violation_after(cursor_worker, cursor_day)
-            if hit is None:
-                break
-            key = (hit[0], hit[1], hit[2])
-            if key in seen:
-                break
-            seen.add(key)
-            ordered_hits.append(key)
-            hit_idx = hit[0] * final_inst.num_days + hit[1]
-            next_idx = (hit_idx + 1) % total_slots
-            cursor_worker, cursor_day = divmod(next_idx, final_inst.num_days)
         for worker, day, violation_type in ordered_hits:
             snapshot_lines.append(f"- w{worker}, d{day}, type={violation_type}")
     snapshot_path.write_text("\n".join(snapshot_lines) + "\n", encoding="utf-8")
