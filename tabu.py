@@ -86,9 +86,11 @@ def tabu(
     use_objective_tiebreaker: bool = False,
     model_path: str | Path | None = None,
     model_instance: object | None = None,
-    solver_name: str = "chuffed",
+    solver_name: str = "gecode",
     objective_tiebreak_timeout_seconds: int = 2,
     objective_tiebreak_max_count: int = 10,
+    fixed_cells: set[tuple[int, int]] | None = None,
+    show_progress: bool = True,
 ) -> RWS.Schedule:
     if objective_tiebreak_max_count < 0:
         raise ValueError("objective_tiebreak_max_count must be >= 0")
@@ -99,7 +101,23 @@ def tabu(
         return best
 
     current = _copy_schedule(best)
-    current_score = best_score
+    fixed = set(fixed_cells or set())
+    n_workers = instance.num_workers
+    n_days = instance.num_days
+    n_shifts = len(instance.shift_names)
+    for day, worker in fixed:
+        if not (0 <= day < n_days and 0 <= worker < n_workers):
+            raise ValueError(
+                f"fixed cell {(day, worker)} is out of bounds for {n_days} days x {n_workers} workers"
+            )
+    mutable_cells = [
+        (day, worker)
+        for day in range(n_days)
+        for worker in range(n_workers)
+        if (day, worker) not in fixed
+    ]
+    if not mutable_cells:
+        return best
 
     start = perf_counter()
     rng = random.Random()
@@ -110,9 +128,10 @@ def tabu(
     objective_cache: dict[tuple[tuple[int, ...], ...], float] = {}
     iteration = 0
 
-    n_workers = instance.num_workers
-    n_days = instance.num_days
-    n_shifts = len(instance.shift_names)
+    can_shift = n_shifts > 1 and len(mutable_cells) >= 1
+    can_swap = len(mutable_cells) >= 2
+    if not can_shift and not can_swap:
+        return best
 
     while perf_counter() - start < timeout and best_score > 0:
         best_candidate = None
@@ -122,20 +141,21 @@ def tabu(
 
         for _ in range(max(1, max_neighbors)):
             candidate = _copy_schedule(current)
+            use_swap = False
+            if can_swap and can_shift:
+                use_swap = rng.random() < 0.5
+            elif can_swap:
+                use_swap = True
 
-            if rng.random() < 0.5:
-                worker_a = rng.randrange(n_workers)
-                day_a = rng.randrange(n_days)
-                worker_b = rng.randrange(n_workers)
-                day_b = rng.randrange(n_days)
+            if use_swap:
+                (day_a, worker_a), (day_b, worker_b) = rng.sample(mutable_cells, 2)
                 move = _canonical_swap_move(worker_a, day_a, worker_b, day_b)
                 _apply_swap(candidate, worker_a, day_a, worker_b, day_b)
             else:
-                worker = rng.randrange(n_workers)
-                day = rng.randrange(n_days)
-                old_shift = candidate.assignment[day][worker]
-                if n_shifts <= 1:
+                if not can_shift:
                     continue
+                day, worker = rng.choice(mutable_cells)
+                old_shift = candidate.assignment[day][worker]
                 # Shift ID 0 is included here and represents OFF/day-off.
                 new_shift = rng.randrange(n_shifts)
                 if new_shift == old_shift:
@@ -204,7 +224,7 @@ def tabu(
             best_score = current_score
         iteration += 1
         elapsed_now = perf_counter() - start
-        if elapsed_now >= next_report_at:
+        if show_progress and elapsed_now >= next_report_at:
             print(
                 f"\relapsed={elapsed_now:6.1f}s iter={iteration} count={best_score}",
                 end="",
@@ -212,7 +232,7 @@ def tabu(
             )
             next_report_at += 10.0
 
-    if iteration > 0:
+    if show_progress and iteration > 0:
         print()
 
     return best

@@ -32,15 +32,15 @@ N A
 A D
 
 # --- LNS APPENDIX ---
-final_objective=7.0
-runtime_seconds=1185.311 iterations=67 solved=False
+final_objective=45.0
+runtime_seconds=158.365 iterations=17 solved=False
 
 mbandit_parameters:
 iterations_till_weight_update=10
 reaction_factor=0.2
 beta_softmax=1.5
 equal_move_allowed_freezeout=15
-late_phase_weight=100000
+late_phase_weight=100
 late_phase_strict_improvement=True
 annealing_temperature=5.0
 min_annealing_temperature=0.5
@@ -48,43 +48,62 @@ time_decay_annealing=0.975
 binomial_p=0.2
 reshuffle_before_exploration=False
 reshuffle_only_in_early_phase=False
-global_timeout_seconds=1000
+global_timeout_seconds=150
 minizinc_timeout_seconds=60
 exploration_after_stagnation=10
 number_of_consecutive_explorations=2
-exploratory_timeout_seconds=100
+exploratory_timeout_seconds=50
 solver_name=chuffed
 destroy_tabu_length=10
 
 last_schedule_shift_ids:
 day        0   1   2   3   4   5   6
-worker  0:   2   2   2   0   0   0   0
-worker  1:   1   1   2   2   0   0   0
-worker  2:   1   1   1   1   0   0   0
+worker  0:   0   0   1   1   0   0   0
+worker  1:   0   2   2   2   0   0   1
+worker  2:   1   1   1   0   0   0   0
 worker  3:   1   1   1   1   0   0   0
 worker  4:   1   1   1   1   1   0   0
-worker  5:   2   2   2   1   1   1   0
-worker  6:   0   0   1   1   1   1   1
-worker  7:   2   2   0   0   1   1   1
-worker  8:   3   3   3   0   0   1   1
-worker  9:   2   2   0   0   2   2   2
-worker 10:   3   3   0   0   2   2   2
-worker 11:   2   0   0   2   2   2   2
-worker 12:   0   0   2   2   2   2   2
-worker 13:   3   3   0   2   3   3   3
-worker 14:   0   0   3   3   3   3   3
-worker 15:   0   0   3   3   3   3   3
-worker 16:   0   0   0   3   3   3   3
+worker  5:   2   2   2   1   1   0   0
+worker  6:   2   2   0   0   1   1   1
+worker  7:   0   0   2   2   0   0   3
+worker  8:   0   0   3   3   0   0   0
+worker  9:   1   0   0   0   0   1   1
+worker 10:   1   1   2   2   2   0   0
+worker 11:   3   3   3   2   2   2   2
+worker 12:   3   0   3   0   0   2   2
+worker 13:   3   0   0   3   3   3   3
+worker 14:   0   0   0   3   3   3   3
+worker 15:   0   0   0   0   3   3   3
+worker 16:   3   0   0   0   0   3   0
 
 violation_diagnostic_from_find_first_violation_after:
-- w0, d0, type=forbidden_sequence_2
-- w2, d3, type=shift_req_over_D_by_1
-- w3, d3, type=shift_req_over_D_by_1
-- w4, d3, type=shift_req_over_D_by_1
+- w0, d0, type=shift_req_under_A_by_3
+- w0, d1, type=shift_req_under_A_by_1
+- w0, d2, type=min_consecutive_work
+- w0, d3, type=min_consecutive_work
+- w0, d4, type=shift_req_under_D_by_1
+- w0, d5, type=shift_req_under_D_by_2
+- w0, d6, type=shift_req_under_A_by_2
+- w1, d1, type=min_consecutive_work
+- w1, d2, type=min_consecutive_work
+- w1, d3, type=min_consecutive_work
 - w5, d2, type=forbidden_sequence_2
 - w5, d3, type=forbidden_sequence_2
-- w6, d0, type=shift_req_under_D_by_1
-- w6, d3, type=shift_req_over_D_by_1
-- w13, d2, type=min_consecutive_off
-- w13, d3, type=min_consecutive_shift_2
-- w16, d6, type=forbidden_sequence_2
+- w6, d0, type=min_consecutive_work
+- w6, d1, type=min_consecutive_work
+- w6, d4, type=min_consecutive_work
+- w6, d5, type=min_consecutive_work
+- w6, d6, type=min_consecutive_work
+- w7, d2, type=min_consecutive_work
+- w7, d3, type=min_consecutive_work
+- w7, d6, type=min_consecutive_work
+- w8, d2, type=min_consecutive_work
+- w8, d3, type=min_consecutive_work
+- w9, d0, type=min_consecutive_work
+- w11, d2, type=forbidden_sequence_2
+- w11, d3, type=forbidden_sequence_2
+- w12, d0, type=max_consecutive_work
+- w12, d1, type=min_consecutive_off
+- w12, d2, type=min_consecutive_work
+- w13, d0, type=min_consecutive_work
+- w16, d5, type=min_consecutive_work

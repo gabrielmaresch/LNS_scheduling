@@ -9,6 +9,7 @@ from time import perf_counter
 from typing import Any, Callable, Dict, Optional
 
 from rws import RWS, rws_lns
+from tabu import tabu as run_tabu
 
 
 def _default_score_function(
@@ -58,15 +59,15 @@ class MBandit:
     reaction_factor: float = 0.2
     beta_softmax: float = 1.5
     equal_move_allowed_freezeout: int = 15
-    late_phase_weight: int = 100
+    late_phase_weight: int = 1000
     late_phase_strict_improvement: bool = True
     
     ##### Simulated annealing for accepting subpar solutions
     annealing_temperature: float = 5
     initial_annealing_temperature: float = field(init=False)
-    min_annealing_temperature: float = 0.5
-    time_decay_annealing: float = 0.975
-    binomial_p: float = 0.2
+    min_annealing_temperature: float = 1
+    time_decay_annealing: float = 0.985
+    binomial_p: float = 0.3
     reshuffle_before_exploration: bool = False
     reshuffle_only_in_early_phase: bool = False
 
@@ -83,8 +84,8 @@ class MBandit:
     exclude_in_late_phase_destroy: Dict[str, bool] = field(default_factory=dict)
     
     ######## Exploration
-    exploration_after_stagnation: int = 10
-    number_of_consecutive_explorations: int = 2
+    exploration_after_stagnation: int = 6
+    number_of_consecutive_explorations: int = 3
     destroy_exploration_operator: Callable[[rws_lns], list[tuple[int, int]]] = field(init=False, repr=False)
     solver_name: str = "chuffed"
     exploratory_timeout_seconds: float = 50
@@ -98,7 +99,7 @@ class MBandit:
     operator_usage_counts: Dict[str, int] = field(init=False)
     
     ######## Tabu parameters
-    destroy_tabu_length: int = 10
+    destroy_tabu_length: int = 20
     destroy_tabu_history: deque[tuple[frozenset[int], frozenset[int]]] = field(
         init=False, repr=False
     )
@@ -161,7 +162,12 @@ class MBandit:
                     model_path=self.model_path,
                     solver_name=self.solver_name,
                     timeout_seconds=self.minizinc_timeout_seconds,
-                )
+                ),
+                "repair_tabu": _make_repair_tabu_operator(
+                    model_path=self.model_path,
+                    solver_name=self.solver_name,
+                    timeout_seconds=self.minizinc_timeout_seconds,
+                ),
             }
         for name in self.destroy_operators:
             self.exclude_in_late_phase_destroy.setdefault(name, False)
@@ -652,6 +658,77 @@ def _make_repair_operator(
     return _op
 
 
+def _make_repair_tabu_operator(
+    model_path: str | Path | None,
+    solver_name: str,
+    timeout_seconds: int,
+    tabu_length: int = 10,
+    max_neighbors: int = 64,
+    objective_tiebreak_timeout_seconds: int = 2,
+    objective_tiebreak_max_count: int = 10,
+) -> Callable[[rws_lns], None]:
+    """Create a tabu-based repair operator honoring `lns.fixed_vars` as hard-fixed cells."""
+
+    def _op(lns: rws_lns) -> None:
+        from rws_mzk_pipeline import build_rws_model_instance
+
+        multiplier = float(getattr(lns, "_repair_timeout_multiplier", 1.0))
+        scaled_timeout = max(1, int(math.ceil(timeout_seconds * multiplier)))
+        seed_schedule = lns.contender if lns.contender is not None else lns.incumbent
+        fixed_cells = set(lns.fixed_vars.keys())
+
+        current_instance_id = id(lns.instance)
+        if getattr(lns, "_cached_instance_id", None) != current_instance_id:
+            lns._cached_model_instances.clear()
+            lns._cached_instance_id = current_instance_id
+
+        resolved_model_path = (
+            Path(__file__).resolve().parent / "rws_instance.mzn"
+            if model_path is None
+            else Path(model_path)
+        )
+        if not resolved_model_path.is_absolute():
+            resolved_model_path = Path(__file__).resolve().parent / resolved_model_path
+        cache_key = (resolved_model_path, solver_name, False)
+        model_instance = lns._cached_model_instances.get(cache_key)
+        if model_instance is None:
+            model_instance, _ = build_rws_model_instance(
+                lns=lns,
+                model_path=resolved_model_path,
+                solver_name=solver_name,
+                sloppy=False,
+            )
+            lns._cached_model_instances[cache_key] = model_instance
+
+        best_schedule = run_tabu(
+            instance=lns.instance,
+            schedule=seed_schedule,
+            fixed_cells=fixed_cells,
+            tabu_length=max(1, int(tabu_length)),
+            timeout=float(scaled_timeout),
+            max_neighbors=max(1, int(max_neighbors)),
+            use_objective_tiebreaker=True,
+            model_path=model_path,
+            model_instance=model_instance,
+            solver_name=solver_name,
+            objective_tiebreak_timeout_seconds=max(
+                1, min(int(objective_tiebreak_timeout_seconds), scaled_timeout)
+            ),
+            objective_tiebreak_max_count=max(0, int(objective_tiebreak_max_count)),
+            show_progress=False,
+        )
+        contender_objective = best_schedule.objective_value(
+            model_path=model_path,
+            model_instance=model_instance,
+            solver_name=solver_name,
+            timeout_seconds=scaled_timeout,
+        )
+        lns.contender = best_schedule
+        lns.contender_objective = float(contender_objective)
+
+    return _op
+
+
 def _ceil_fraction_count(total: int, fraction: float) -> int:
     """Convert a fraction to a bounded ceiling count."""
     if fraction <= 0:
@@ -1028,7 +1105,10 @@ if __name__ == "__main__":
         "repair_gecode_fast": _make_repair_operator(model_path, "gecode", 3),
         "repair_chuffed_long": _make_repair_operator(model_path, "chuffed", 15),
         "repair_gecode_long": _make_repair_operator(model_path, "gecode", 15),
+        "repair_tabu_fast": _make_repair_tabu_operator(model_path, "chuffed", 3),
+        "repair_tabu_long": _make_repair_tabu_operator(model_path, "chuffed", 15),
     }
+    
 
 
     max_border_ops = _make_destroy_max_border_operators(instance)
@@ -1053,7 +1133,7 @@ if __name__ == "__main__":
         model_path=model_path,
         destroy_operators=destroy_ops,
         repair_operators=repair_ops,
-        global_timeout_seconds=1000,
+        global_timeout_seconds=150,
         minizinc_timeout_seconds=60
 
     )
@@ -1067,12 +1147,42 @@ if __name__ == "__main__":
         if name in mab.exclude_in_late_phase_destroy:
             mab.exclude_in_late_phase_destroy[name] = True
 ##############################################################
-    #in the beginning favour fast repairs
-    for repair_op in mab.weights_repair.keys():
-        if 'fast' in repair_op:
-            mab.weights_repair[repair_op] = 0.4
-        elif 'long' in repair_op:
-            mab.weights_repair[repair_op] = 0.1
+    # In the beginning, favor fast repairs (including tabu_fast).
+    fast_slow_ratio = 2.0
+    fast_ops = [name for name in mab.weights_repair if "fast" in name]
+    slow_ops = [name for name in mab.weights_repair if "long" in name]
+    other_ops = [name for name in mab.weights_repair if name not in set(fast_ops) | set(slow_ops)]
+    if fast_ops and slow_ops:
+        fast_mass = fast_slow_ratio / (fast_slow_ratio + 1.0)
+        slow_mass = 1.0 / (fast_slow_ratio + 1.0)
+    elif fast_ops:
+        fast_mass = 1.0
+        slow_mass = 0.0
+    elif slow_ops:
+        fast_mass = 0.0
+        slow_mass = 1.0
+    else:
+        fast_mass = 0.0
+        slow_mass = 0.0
+    other_mass = 0.0
+    fast_each = (fast_mass / len(fast_ops)) if fast_ops else 0.0
+    slow_each = (slow_mass / len(slow_ops)) if slow_ops else 0.0
+    other_each = (other_mass / len(other_ops)) if other_ops else 0.0
+    for repair_op in fast_ops:
+        mab.weights_repair[repair_op] = fast_each
+    for repair_op in slow_ops:
+        mab.weights_repair[repair_op] = slow_each
+    for repair_op in other_ops:
+        mab.weights_repair[repair_op] = other_each
+    if sum(mab.weights_repair.values()) <= 0.0:
+        equal = 1.0 / len(mab.weights_repair)
+        for repair_op in mab.weights_repair:
+            mab.weights_repair[repair_op] = equal
+            
+    print("Initial repair operators:")
+    for name in sorted(mab.weights_repair):
+        print(f"  {name}: weight={mab.weights_repair[name]:.3f}")
+
 
     print(f"Loaded instance: {instance_path}")
     print("Initial schedule:")
