@@ -78,6 +78,8 @@ def _build_repair_ops(model_path: Path) -> dict[str, Any]:
         "repair_gecode_fast": ppo._make_repair_operator(model_path, "gecode", 3),
         "repair_chuffed_long": ppo._make_repair_operator(model_path, "chuffed", 15),
         "repair_gecode_long": ppo._make_repair_operator(model_path, "gecode", 15),
+        "repair_tabu_fast": ppo._make_repair_tabu_operator(model_path, "chuffed", 3),
+        "repair_tabu_long": ppo._make_repair_tabu_operator(model_path, "chuffed", 12),
     }
 
 
