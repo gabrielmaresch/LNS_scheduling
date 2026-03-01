@@ -31,6 +31,7 @@ from multiarm_bandit import (
     _make_destroy_worst_days as _mab_make_destroy_worst_days,
     _make_destroy_worst_workers as _mab_make_destroy_worst_workers,
     _make_repair_operator as _mab_make_repair_operator,
+    _make_repair_tabu_operator as _mab_make_repair_tabu_operator,
 )
 import matplotlib.pyplot as plt
 
@@ -927,6 +928,9 @@ class drl_alns:
 def _make_repair_operator(model_path: Path, solver_name: str, timeout_seconds: int):
     return _mab_make_repair_operator(model_path, solver_name, timeout_seconds)
 
+def _make_repair_tabu_operator(model_path: Path, solver_name: str, timeout_seconds: int):
+    return _mab_make_repair_tabu_operator(model_path, solver_name, timeout_seconds)
+
 
 def _severity_to_fraction(severity: float) -> float:
     """Convert DRL severity to bounded destroy fraction."""
@@ -1373,6 +1377,8 @@ if __name__ == "__main__":
         "repair_gecode_fast": _make_repair_operator(model_path, "gecode", 3),
         "repair_chuffed_long": _make_repair_operator(model_path, "chuffed", 15),
         "repair_gecode_long": _make_repair_operator(model_path, "gecode", 15),
+        "repair_tabu_fast": _make_repair_tabu_operator(model_path, "chuffed", 3),
+        "repair_tabu_long": _make_repair_tabu_operator(model_path, "chuffed", 12),
     }
     destroy_ops = _build_destroy_library(instance=instance)
     solver = drl_alns(

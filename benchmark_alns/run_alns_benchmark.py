@@ -26,6 +26,7 @@ from multiarm_bandit import (
     _make_destroy_worst_days,
     _make_destroy_worst_workers,
     _make_repair_operator,
+    _make_repair_tabu_operator,
 )
 from rws import rws_lns
 from rws_instance_loader import load_instance_and_schedule
@@ -80,11 +81,15 @@ def _build_operators(
     Dict[str, Callable[[rws_lns], list[tuple[int, int]]]],
     Dict[str, Callable[[rws_lns], None]],
 ]:
+    fast_timeout = 3
+    long_timeout = 12
     repair_ops: Dict[str, Callable[[rws_lns], None]] = {
-        "repair_chuffed_fast": _make_repair_operator(model_path, "chuffed", 3),
-        "repair_gecode_fast": _make_repair_operator(model_path, "gecode", 3),
-        "repair_chuffed_long": _make_repair_operator(model_path, "chuffed", 15),
-        "repair_gecode_long": _make_repair_operator(model_path, "gecode", 15),
+        "repair_chuffed_fast": _make_repair_operator(model_path, "chuffed", fast_timeout),
+        "repair_gecode_fast": _make_repair_operator(model_path, "gecode", fast_timeout),
+        "repair_chuffed_long": _make_repair_operator(model_path, "chuffed", long_timeout),
+        "repair_gecode_long": _make_repair_operator(model_path, "gecode", long_timeout),
+        "repair_tabu_fast": _make_repair_tabu_operator(model_path, "chuffed", fast_timeout),
+        "repair_tabu_long": _make_repair_tabu_operator(model_path, "chuffed", long_timeout),
     }
     max_border_ops = _make_destroy_max_border_operators(instance)
     destroy_ops: Dict[str, Callable[[rws_lns], list[tuple[int, int]]]] = {
@@ -102,6 +107,66 @@ def _build_operators(
         **max_border_ops,
     }
     return destroy_ops, repair_ops
+
+
+def _init_repair_weights_fast_slow(mab: MBandit) -> None:
+    fast_ops = [name for name in mab.weights_repair if "fast" in name]
+    slow_ops = [name for name in mab.weights_repair if "long" in name]
+    for repair_op in mab.weights_repair:
+        mab.weights_repair[repair_op] = 0.0
+    if fast_ops and slow_ops:
+        fast_each = (2.0 / 3.0) / len(fast_ops)
+        slow_each = (1.0 / 3.0) / len(slow_ops)
+        for repair_op in fast_ops:
+            mab.weights_repair[repair_op] = fast_each
+        for repair_op in slow_ops:
+            mab.weights_repair[repair_op] = slow_each
+    elif fast_ops:
+        each = 1.0 / len(fast_ops)
+        for repair_op in fast_ops:
+            mab.weights_repair[repair_op] = each
+    elif slow_ops:
+        each = 1.0 / len(slow_ops)
+        for repair_op in slow_ops:
+            mab.weights_repair[repair_op] = each
+    else:
+        each = 1.0 / len(mab.weights_repair)
+        for repair_op in mab.weights_repair:
+            mab.weights_repair[repair_op] = each
+
+
+def _print_specs_readback(
+    selected_instances: List[Path],
+    n_seeds: int,
+    timeout_seconds: float,
+    variants: List[str],
+) -> None:
+    if not selected_instances:
+        return
+    sample_instance_path = selected_instances[0]
+    sample_instance, _sample_schedule = load_instance_and_schedule(
+        file_path=sample_instance_path,
+        cyclicity=True,
+        initial_schedule="round_robin",
+    )
+    destroy_ops, repair_ops = _build_operators(
+        instance=sample_instance,
+        model_path=BASE_DIR / "rws_instance.mzn",
+    )
+    repair_names = sorted(repair_ops.keys())
+    destroy_names = sorted(destroy_ops.keys())
+    print("\nResolved ALNS benchmark specs:")
+    print(f"  variants: {variants}")
+    print(
+        f"  instances: first {len(selected_instances)} "
+        f"({selected_instances[0].stem} .. {selected_instances[-1].stem})"
+    )
+    print(f"  seeds_per_instance: {n_seeds}")
+    print(f"  timeout_seconds: {timeout_seconds}")
+    print("  mbandit_params: beta_softmax=1.2, minizinc_timeout_seconds=60")
+    print("  repair_weight_init: fast/slow = 2:1 (same policy as multiarm_bandit main)")
+    print(f"  repair_operators ({len(repair_names)}): {repair_names}")
+    print(f"  destroy_operators ({len(destroy_names)}): {destroy_names}")
 
 
 def _configure_variant(mab: MBandit, variant: str) -> None:
@@ -145,16 +210,12 @@ def _run_single(
         model_path=model_path,
         destroy_operators=destroy_ops,
         repair_operators=repair_ops,
+        beta_softmax=1.2,
         global_timeout_seconds=timeout_seconds,
         minizinc_timeout_seconds=60,
     )
     _configure_variant(mab, variant)
-
-    for repair_op in mab.weights_repair:
-        if "fast" in repair_op:
-            mab.weights_repair[repair_op] = 0.4
-        elif "long" in repair_op:
-            mab.weights_repair[repair_op] = 0.1
+    _init_repair_weights_fast_slow(mab)
 
     loop_start = perf_counter()
     timed_out = False
@@ -256,7 +317,7 @@ def _run_single(
         "solved": solved,
         "timeout_hit": timed_out,
         "error": error,
-        "solver_name": "mixed(chuffed+gecode)",
+        "solver_name": "mixed(chuffed+gecode+tabu_chuffed)",
     }
     return row, "\n".join(log_lines) + "\n"
 
@@ -274,6 +335,12 @@ def main() -> None:
     timeout_seconds = _ask_float("Timeout per solve (seconds)", 60.0, minimum=0.1)
     variants = _ask_variant_mode()
     selected_instances = instance_paths[:n_instances]
+    _print_specs_readback(
+        selected_instances=selected_instances,
+        n_seeds=n_seeds,
+        timeout_seconds=timeout_seconds,
+        variants=variants,
+    )
     known_indexes = [
         idx
         for idx in (_instance_index_from_stem(instance_path.stem) for instance_path in selected_instances)
@@ -300,7 +367,8 @@ def main() -> None:
                     f"n_instances={n_instances}",
                     f"n_seeds={n_seeds}",
                     f"timeout_seconds={timeout_seconds}",
-                    "solver_setup=mixed(chuffed+gecode) [matches multiarm_bandit main]",
+                    "solver_setup=mixed(chuffed+gecode+tabu_chuffed) [matches multiarm_bandit main operator set]",
+                    "repair_weight_init=fast_slow_2_to_1",
                 ]
             )
             + "\n",

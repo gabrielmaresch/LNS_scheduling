@@ -57,16 +57,17 @@ class MBandit:
     ###### Parameters for weight updates
     iterations_till_weight_update: int = 10
     reaction_factor: float = 0.2
-    beta_softmax: float = 1.5
+    beta_softmax: float = 1.2
     equal_move_allowed_freezeout: int = 15
-    late_phase_weight: int = 1000
+    late_phase_weight: int = 10000
     late_phase_strict_improvement: bool = True
     
     ##### Simulated annealing for accepting subpar solutions
     annealing_temperature: float = 5
     initial_annealing_temperature: float = field(init=False)
-    min_annealing_temperature: float = 1
+    min_annealing_temperature: float = 0.5
     time_decay_annealing: float = 0.985
+    reheating_factor: float = 1.05
     binomial_p: float = 0.3
     reshuffle_before_exploration: bool = False
     reshuffle_only_in_early_phase: bool = False
@@ -84,11 +85,11 @@ class MBandit:
     exclude_in_late_phase_destroy: Dict[str, bool] = field(default_factory=dict)
     
     ######## Exploration
-    exploration_after_stagnation: int = 6
-    number_of_consecutive_explorations: int = 3
+    exploration_after_stagnation: int = 10
+    number_of_consecutive_explorations: int = 2
     destroy_exploration_operator: Callable[[rws_lns], list[tuple[int, int]]] = field(init=False, repr=False)
-    solver_name: str = "chuffed"
-    exploratory_timeout_seconds: float = 50
+    solver_name: str = "gecode"
+    exploratory_timeout_seconds: float = 24
     repair_exploration_operator: Callable[[rws_lns], None] = field(init=False, repr=False)
     exploration_steps_remaining: int = field(init=False, default=0)
     next_exploration_trigger: int = field(init=False, default=0)
@@ -128,6 +129,8 @@ class MBandit:
             raise ValueError("positive configuration values required")
         if not (0.0 <= self.reaction_factor <= 1.0 and 0 < self.time_decay_annealing <= 1):
             raise ValueError("reaction_factor/time_decay out of bounds")
+        if self.reheating_factor < 1.0:
+            raise ValueError("reheating_factor must be >= 1.0")
         if self.min_annealing_temperature > self.annealing_temperature:
             raise ValueError("min_temperature must be <= annealing_temperature")
         self.initial_annealing_temperature = float(self.annealing_temperature)
@@ -571,7 +574,7 @@ class MBandit:
             self.stagnation_rounds += 1
             self.annealing_temperature = min(
                 self.initial_annealing_temperature,
-                self.annealing_temperature * 1.05,
+                self.annealing_temperature * self.reheating_factor,
             )
         weights_updated = False
         destroy_weight_updates: Dict[str, Dict[str, float]] = {}
@@ -662,7 +665,7 @@ def _make_repair_tabu_operator(
     model_path: str | Path | None,
     solver_name: str,
     timeout_seconds: int,
-    tabu_length: int = 10,
+    tabu_length: int = 40,
     max_neighbors: int = 64,
     objective_tiebreak_timeout_seconds: int = 2,
     objective_tiebreak_max_count: int = 10,
@@ -1103,10 +1106,10 @@ if __name__ == "__main__":
     repair_ops: Dict[str, Callable[[rws_lns], None]] = {
         "repair_chuffed_fast": _make_repair_operator(model_path, "chuffed", 3),
         "repair_gecode_fast": _make_repair_operator(model_path, "gecode", 3),
-        "repair_chuffed_long": _make_repair_operator(model_path, "chuffed", 15),
-        "repair_gecode_long": _make_repair_operator(model_path, "gecode", 15),
+        "repair_chuffed_long": _make_repair_operator(model_path, "chuffed", 12),
+        "repair_gecode_long": _make_repair_operator(model_path, "gecode", 12),
         "repair_tabu_fast": _make_repair_tabu_operator(model_path, "chuffed", 3),
-        "repair_tabu_long": _make_repair_tabu_operator(model_path, "chuffed", 15),
+        "repair_tabu_long": _make_repair_tabu_operator(model_path, "chuffed", 12),
     }
     
 
@@ -1126,14 +1129,18 @@ if __name__ == "__main__":
         "destroy_random_days_20pct": _make_destroy_random_days(0.20),
         **max_border_ops,
     }
-  ############## Parameters for actual run ###############
+  
+  #######################################################################
+  ############## Parameters for actual run ##############################
+
     mab = MBandit(
         instance=instance,
         schedule=schedule,
         model_path=model_path,
         destroy_operators=destroy_ops,
         repair_operators=repair_ops,
-        global_timeout_seconds=150,
+        beta_softmax=1.2,
+        global_timeout_seconds=900,
         minizinc_timeout_seconds=60
 
     )
@@ -1147,37 +1154,30 @@ if __name__ == "__main__":
         if name in mab.exclude_in_late_phase_destroy:
             mab.exclude_in_late_phase_destroy[name] = True
 ##############################################################
-    # In the beginning, favor fast repairs (including tabu_fast).
-    fast_slow_ratio = 2.0
+    # Initialize repair weights with a simple 2:1 bias (fast vs long).
     fast_ops = [name for name in mab.weights_repair if "fast" in name]
     slow_ops = [name for name in mab.weights_repair if "long" in name]
-    other_ops = [name for name in mab.weights_repair if name not in set(fast_ops) | set(slow_ops)]
+    for repair_op in mab.weights_repair:
+        mab.weights_repair[repair_op] = 0.0
     if fast_ops and slow_ops:
-        fast_mass = fast_slow_ratio / (fast_slow_ratio + 1.0)
-        slow_mass = 1.0 / (fast_slow_ratio + 1.0)
+        fast_each = (2.0 / 3.0) / len(fast_ops)
+        slow_each = (1.0 / 3.0) / len(slow_ops)
+        for repair_op in fast_ops:
+            mab.weights_repair[repair_op] = fast_each
+        for repair_op in slow_ops:
+            mab.weights_repair[repair_op] = slow_each
     elif fast_ops:
-        fast_mass = 1.0
-        slow_mass = 0.0
+        each = 1.0 / len(fast_ops)
+        for repair_op in fast_ops:
+            mab.weights_repair[repair_op] = each
     elif slow_ops:
-        fast_mass = 0.0
-        slow_mass = 1.0
+        each = 1.0 / len(slow_ops)
+        for repair_op in slow_ops:
+            mab.weights_repair[repair_op] = each
     else:
-        fast_mass = 0.0
-        slow_mass = 0.0
-    other_mass = 0.0
-    fast_each = (fast_mass / len(fast_ops)) if fast_ops else 0.0
-    slow_each = (slow_mass / len(slow_ops)) if slow_ops else 0.0
-    other_each = (other_mass / len(other_ops)) if other_ops else 0.0
-    for repair_op in fast_ops:
-        mab.weights_repair[repair_op] = fast_each
-    for repair_op in slow_ops:
-        mab.weights_repair[repair_op] = slow_each
-    for repair_op in other_ops:
-        mab.weights_repair[repair_op] = other_each
-    if sum(mab.weights_repair.values()) <= 0.0:
-        equal = 1.0 / len(mab.weights_repair)
+        each = 1.0 / len(mab.weights_repair)
         for repair_op in mab.weights_repair:
-            mab.weights_repair[repair_op] = equal
+            mab.weights_repair[repair_op] = each
             
     print("Initial repair operators:")
     for name in sorted(mab.weights_repair):
@@ -1355,6 +1355,7 @@ if __name__ == "__main__":
         "annealing_temperature",
         "min_annealing_temperature",
         "time_decay_annealing",
+        "reheating_factor",
         "binomial_p",
         "reshuffle_before_exploration",
         "reshuffle_only_in_early_phase",

@@ -163,6 +163,43 @@ def _quantile(values: Sequence[float], q: float) -> float:
     return float(np.quantile(arr, q))
 
 
+def _robust_limits(
+    values: Sequence[float],
+    q_low: float = 0.05,
+    q_high: float = 0.95,
+    pad_ratio: float = 0.08,
+) -> Tuple[float, float] | None:
+    finite = [float(v) for v in values if math.isfinite(v)]
+    if not finite:
+        return None
+    arr = np.array(finite, dtype=float)
+    lo = float(np.quantile(arr, q_low))
+    hi = float(np.quantile(arr, q_high))
+    if not math.isfinite(lo) or not math.isfinite(hi):
+        return None
+    if hi < lo:
+        lo, hi = hi, lo
+    span = max(hi - lo, 1e-9)
+    pad = max(span * pad_ratio, 1e-9)
+    return lo - pad, hi + pad
+
+
+def _drop_tukey_outliers(values: Sequence[float], k: float = 1.5) -> List[float]:
+    finite = [float(v) for v in values if math.isfinite(v)]
+    if len(finite) < 4:
+        return finite
+    arr = np.array(finite, dtype=float)
+    q1 = float(np.quantile(arr, 0.25))
+    q3 = float(np.quantile(arr, 0.75))
+    iqr = q3 - q1
+    if not math.isfinite(iqr) or iqr <= 0:
+        return finite
+    lo = q1 - k * iqr
+    hi = q3 + k * iqr
+    trimmed = [v for v in finite if lo <= v <= hi]
+    return trimmed if trimmed else finite
+
+
 def _step_curve_on_grid(points: Sequence[Tuple[float, float]], grid: np.ndarray) -> np.ndarray:
     if not points:
         return np.full_like(grid, np.nan, dtype=float)
@@ -240,6 +277,9 @@ def _latest_baseline_csv(baseline_dir: Path) -> Path:
     candidates = sorted(baseline_dir.glob("baseline_runs_*.csv"))
     if not candidates:
         raise FileNotFoundError(f"no baseline_runs_*.csv found in {baseline_dir}")
+    non_aggregate = [p for p in candidates if "aggregate" not in p.name.lower()]
+    if non_aggregate:
+        return non_aggregate[-1]
     return candidates[-1]
 
 
@@ -247,10 +287,15 @@ def _build_cp_map(baseline_csv: Path) -> Dict[str, float]:
     rows = _read_csv(baseline_csv)
     by_instance: Dict[str, float] = {}
     for row in rows:
+        row_type = str(row.get("row_type", "")).strip().lower()
+        if row_type not in {"", "instance"}:
+            continue
         instance = str(row.get("instance", "")).strip()
         if instance == "":
             continue
         objective = _to_float(row.get("objective"))
+        if not math.isfinite(objective):
+            objective = _to_float(row.get("objective_mean"))
         if not math.isfinite(objective):
             continue
         by_instance[instance] = min(by_instance.get(instance, objective), objective)
@@ -1393,6 +1438,119 @@ def _time_to_target(
     return run_rows, instance_rows, summary_rows
 
 
+def _build_all_method_run_rows(
+    eval_rows: Sequence[Dict[str, Any]],
+    alns_eval_rows: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+
+    for row in eval_rows:
+        if str(row.get("status", "")) != "ok":
+            continue
+        objective = _to_float(row.get("final_objective"))
+        if not math.isfinite(objective):
+            continue
+        out.append(
+            {
+                "method_id": str(row.get("model_id", "")),
+                "source_family": "PPO",
+                "checkpoint_seed": row.get("checkpoint_seed"),
+                "test_instance_id": str(row.get("test_instance_id", "")),
+                "instance_index": row.get("instance_index"),
+                "run_seed": row.get("eval_seed"),
+                "objective": objective,
+                "runtime_seconds": _to_float(row.get("runtime_seconds")),
+                "cp_objective": _to_float(row.get("cp_objective")),
+                "gap_to_cp": _to_float(row.get("gap_to_cp")),
+            }
+        )
+
+    for row in alns_eval_rows:
+        objective = _to_float(row.get("objective"))
+        if not math.isfinite(objective):
+            continue
+        out.append(
+            {
+                "method_id": str(row.get("algorithm", "")),
+                "source_family": "ALNS",
+                "checkpoint_seed": "",
+                "test_instance_id": str(row.get("test_instance_id", "")),
+                "instance_index": row.get("instance_index"),
+                "run_seed": row.get("seed"),
+                "objective": objective,
+                "runtime_seconds": _to_float(row.get("runtime_seconds")),
+                "cp_objective": _to_float(row.get("cp_objective")),
+                "gap_to_cp": _to_float(row.get("gap_to_cp")),
+            }
+        )
+
+    out.sort(
+        key=lambda r: (
+            str(r.get("source_family", "")),
+            _to_int(str(r.get("method_id", "")).replace("checkpoint_seed", "")) or 10**9,
+            str(r.get("method_id", "")),
+            _instance_sort_key(str(r.get("test_instance_id", ""))),
+            _to_int(r.get("run_seed")) or 10**9,
+        )
+    )
+    return out
+
+
+def _all_methods_time_to_target_from_runs(
+    all_method_run_rows: Sequence[Dict[str, Any]],
+    target_gap: float,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    run_rows: List[Dict[str, Any]] = []
+    for row in all_method_run_rows:
+        cp_obj = _to_float(row.get("cp_objective"))
+        objective = _to_float(row.get("objective"))
+        runtime = _to_float(row.get("runtime_seconds"))
+        target_obj = cp_obj + _denom_for_gap(cp_obj) * float(target_gap) if math.isfinite(cp_obj) else math.nan
+        t_hit = runtime if (math.isfinite(runtime) and math.isfinite(target_obj) and math.isfinite(objective) and objective <= target_obj + EPS) else math.nan
+        run_rows.append(
+            {
+                "method_id": str(row.get("method_id", "")),
+                "source_family": str(row.get("source_family", "")),
+                "checkpoint_seed": row.get("checkpoint_seed"),
+                "test_instance_id": str(row.get("test_instance_id", "")),
+                "instance_index": row.get("instance_index"),
+                "run_seed": row.get("run_seed"),
+                "cp_objective": cp_obj,
+                "target_gap": float(target_gap),
+                "target_objective": target_obj,
+                "time_to_target_seconds": t_hit,
+                "reached_target": bool(math.isfinite(t_hit)),
+            }
+        )
+
+    grouped = _group_rows(run_rows, ["method_id", "source_family", "checkpoint_seed"])
+    summary_rows: List[Dict[str, Any]] = []
+    for (method_id, source_family, checkpoint_seed), rows in grouped.items():
+        times = [_to_float(r.get("time_to_target_seconds")) for r in rows]
+        finite_times = [t for t in times if math.isfinite(t)]
+        summary_rows.append(
+            {
+                "method_id": method_id,
+                "source_family": source_family,
+                "checkpoint_seed": checkpoint_seed,
+                "n_runs": len(rows),
+                "target_reached_runs": len(finite_times),
+                "target_reached_fraction": len(finite_times) / len(rows) if rows else math.nan,
+                "mean_time_to_target_seconds": _safe_mean(times),
+                "median_time_to_target_seconds": _safe_median(times),
+            }
+        )
+
+    summary_rows.sort(
+        key=lambda r: (
+            str(r.get("source_family", "")),
+            _to_int(str(r.get("method_id", "")).replace("checkpoint_seed", "")) or 10**9,
+            str(r.get("method_id", "")),
+        )
+    )
+    return run_rows, summary_rows
+
+
 def _action_usage_tables(action_rows: Sequence[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
     by_run_type = _group_rows(action_rows, ["model_id", "checkpoint_seed", "test_instance_id", "eval_seed"])
     per_run_rows: List[Dict[str, Any]] = []
@@ -2133,6 +2291,172 @@ def _plot_cactus(time_to_target_run_rows: Sequence[Dict[str, Any]], out_path: Pa
     plt.close()
 
 
+def _plot_all_methods_cactus_time_to_target(
+    run_rows: Sequence[Dict[str, Any]],
+    out_path: Path,
+) -> None:
+    if not run_rows:
+        return
+    grouped = _group_rows(run_rows, ["method_id", "source_family"])
+    keys = sorted(
+        grouped.keys(),
+        key=lambda k: (
+            str(k[1]),
+            _to_int(str(k[0]).replace("checkpoint_seed", "")) or 10**9,
+            str(k[0]),
+        ),
+    )
+    plt.figure(figsize=(9, 5.5))
+    plotted = 0
+    for method_id, source_family in keys:
+        rows = grouped.get((method_id, source_family), [])
+        times = sorted(
+            [
+                _to_float(r.get("time_to_target_seconds"))
+                for r in rows
+                if math.isfinite(_to_float(r.get("time_to_target_seconds")))
+            ]
+        )
+        if not times:
+            continue
+        x = np.arange(1, len(times) + 1)
+        label = f"{source_family}:{method_id}"
+        plt.step(x, times, where="post", label=label)
+        plotted += 1
+    if plotted == 0:
+        plt.close()
+        return
+    plt.xlabel("Reached-target Runs")
+    plt.ylabel("Time to Target (s)")
+    plt.title("Cactus Plot vs CP Target (All Methods)")
+    plt.legend(fontsize=8)
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=140)
+    plt.close()
+
+
+def _plot_all_methods_cactus_gap_to_cp(
+    all_method_run_rows: Sequence[Dict[str, Any]],
+    out_path: Path,
+) -> None:
+    if not all_method_run_rows:
+        return
+    grouped = _group_rows(all_method_run_rows, ["method_id", "source_family"])
+    keys = sorted(
+        grouped.keys(),
+        key=lambda k: (
+            str(k[1]),
+            _to_int(str(k[0]).replace("checkpoint_seed", "")) or 10**9,
+            str(k[0]),
+        ),
+    )
+    plt.figure(figsize=(9, 5.5))
+    plotted = 0
+    for method_id, source_family in keys:
+        rows = grouped.get((method_id, source_family), [])
+        vals = sorted([_to_float(r.get("gap_to_cp")) for r in rows if math.isfinite(_to_float(r.get("gap_to_cp")))])
+        if not vals:
+            continue
+        x = np.arange(1, len(vals) + 1)
+        label = f"{source_family}:{method_id}"
+        plt.step(x, vals, where="post", label=label)
+        plotted += 1
+    if plotted == 0:
+        plt.close()
+        return
+    plt.axhline(0.0, color="gray", linestyle="--", linewidth=1.0)
+    plt.xlabel("Runs (sorted by gap)")
+    plt.ylabel("Final Relative Gap to CP")
+    plt.title("Cactus-style Final Gap to CP (All Methods)")
+    plt.legend(fontsize=8)
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=140)
+    plt.close()
+
+
+def _plot_all_methods_boxplot_gap_to_cp(
+    all_method_run_rows: Sequence[Dict[str, Any]],
+    out_path: Path,
+) -> None:
+    if not all_method_run_rows:
+        return
+    grouped = _group_rows(all_method_run_rows, ["method_id", "source_family"])
+    keys = sorted(
+        grouped.keys(),
+        key=lambda k: (
+            str(k[1]),
+            _to_int(str(k[0]).replace("checkpoint_seed", "")) or 10**9,
+            str(k[0]),
+        ),
+    )
+    labels: List[str] = []
+    series: List[List[float]] = []
+    for method_id, source_family in keys:
+        vals = [
+            _to_float(r.get("gap_to_cp"))
+            for r in grouped.get((method_id, source_family), [])
+            if math.isfinite(_to_float(r.get("gap_to_cp")))
+        ]
+        if not vals:
+            continue
+        labels.append(f"{source_family}:{method_id}")
+        series.append(vals)
+    if not series:
+        return
+    plt.figure(figsize=(max(9, len(labels) * 1.1), 5.2))
+    plt.boxplot(series, tick_labels=labels, showmeans=True)
+    plt.axhline(0.0, color="gray", linestyle="--", linewidth=1.0)
+    plt.ylabel("Final Relative Gap to CP")
+    plt.title("Final Gap to CP Distribution (All Methods)")
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=140)
+    plt.close()
+
+
+def _plot_all_methods_boxplot_runtime(
+    all_method_run_rows: Sequence[Dict[str, Any]],
+    out_path: Path,
+) -> None:
+    if not all_method_run_rows:
+        return
+    grouped = _group_rows(all_method_run_rows, ["method_id", "source_family"])
+    keys = sorted(
+        grouped.keys(),
+        key=lambda k: (
+            str(k[1]),
+            _to_int(str(k[0]).replace("checkpoint_seed", "")) or 10**9,
+            str(k[0]),
+        ),
+    )
+    labels: List[str] = []
+    series: List[List[float]] = []
+    for method_id, source_family in keys:
+        vals = [
+            _to_float(r.get("runtime_seconds"))
+            for r in grouped.get((method_id, source_family), [])
+            if math.isfinite(_to_float(r.get("runtime_seconds")))
+        ]
+        if not vals:
+            continue
+        labels.append(f"{source_family}:{method_id}")
+        series.append(vals)
+    if not series:
+        return
+    plt.figure(figsize=(max(9, len(labels) * 1.1), 5.2))
+    plt.boxplot(series, tick_labels=labels, showmeans=True)
+    plt.ylabel("Runtime (s)")
+    plt.title("Runtime Distribution (All Methods)")
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=140)
+    plt.close()
+
+
 def _plot_pairwise_scatter_model_means(
     matrix_rows: Sequence[Dict[str, Any]],
     models: Sequence[str],
@@ -2366,11 +2690,15 @@ def _plot_ppo_all_vs_alns_scatter(cmp_rows: Sequence[Dict[str, Any]], out_path: 
         plotted_any = True
         px = [p[1] for p in pts]
         py = [p[2] for p in pts]
-        lo = min(px + py)
-        hi = max(px + py)
-        pad = max((hi - lo) * 0.05, 1e-9)
-        lo -= pad
-        hi += pad
+        lims = _robust_limits(px + py, q_low=0.05, q_high=0.95, pad_ratio=0.10)
+        if lims is None:
+            lo = min(px + py)
+            hi = max(px + py)
+            pad = max((hi - lo) * 0.05, 1e-9)
+            lo -= pad
+            hi += pad
+        else:
+            lo, hi = lims
         ax.scatter(px, py, s=34, alpha=0.85)
         ax.plot([lo, hi], [lo, hi], linestyle="--", linewidth=1.2, color="gray")
         if len(pts) <= 25:
@@ -2397,12 +2725,12 @@ def _plot_ppo_all_vs_alns_diff_boxplot(cmp_rows: Sequence[Dict[str, Any]], out_p
     labels: List[str] = []
     series: List[List[float]] = []
     for alg in algorithms:
-        vals = [
+        vals_raw = [
             _to_float(r.get("diff_mean_ppo_minus_alns"))
             for r in rows
             if str(r.get("alns_algorithm", "")) == alg
         ]
-        vals = [v for v in vals if math.isfinite(v)]
+        vals = _drop_tukey_outliers(vals_raw, k=1.5)
         if not vals:
             continue
         labels.append(f"PPO_ALL-{alg}")
@@ -2410,10 +2738,131 @@ def _plot_ppo_all_vs_alns_diff_boxplot(cmp_rows: Sequence[Dict[str, Any]], out_p
     if not series:
         return
     plt.figure(figsize=(max(8, len(labels) * 1.8), 5))
-    plt.boxplot(series, tick_labels=labels, showmeans=True)
+    plt.boxplot(series, tick_labels=labels, showmeans=True, showfliers=False)
     plt.axhline(0.0, color="gray", linestyle="--", linewidth=1)
+    all_vals = [v for values in series for v in values if math.isfinite(v)]
+    lims = _robust_limits(all_vals, q_low=0.05, q_high=0.95, pad_ratio=0.12)
+    if lims is not None:
+        plt.ylim(*lims)
     plt.ylabel("Mean Objective Difference (PPO - ALNS)")
-    plt.title("PPO_ALL vs ALNS Per-instance Mean Objective Difference")
+    plt.title("PPO_ALL vs ALNS Per-instance Mean Objective Difference (Zoomed)")
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=140)
+    plt.close()
+
+
+def _plot_per_instance_ppo_all_vs_alns(
+    matrix_rows: Sequence[Dict[str, Any]],
+    out_path: Path,
+) -> None:
+    if not matrix_rows:
+        return
+    instances = sorted({str(r.get("test_instance_id", "")) for r in matrix_rows}, key=_instance_sort_key)
+    if not instances:
+        return
+
+    lookup = {
+        (str(r.get("algorithm_id", "")), str(r.get("test_instance_id", ""))): _to_float(r.get("mean_objective"))
+        for r in matrix_rows
+    }
+    alns_ids = sorted(
+        {
+            str(r.get("algorithm_id", ""))
+            for r in matrix_rows
+            if str(r.get("source_family", "")).upper() == "ALNS"
+        }
+    )
+    if "PPO_ALL" not in {str(r.get("algorithm_id", "")) for r in matrix_rows}:
+        return
+    algorithms = ["PPO_ALL"] + alns_ids
+    if len(algorithms) <= 1:
+        return
+
+    x = np.arange(len(instances))
+    plt.figure(figsize=(max(10, len(instances) * 0.55), 5.5))
+    plotted = 0
+    for algo in algorithms:
+        y = [lookup.get((algo, instance), math.nan) for instance in instances]
+        if not any(math.isfinite(v) for v in y):
+            continue
+        plt.plot(x, y, marker="o", linewidth=1.4, markersize=3.5, label=algo)
+        plotted += 1
+    if plotted == 0:
+        plt.close()
+        return
+    plt.xticks(x, instances, rotation=60, ha="right")
+    all_vals = [v for algo in algorithms for v in [lookup.get((algo, inst), math.nan) for inst in instances] if math.isfinite(v)]
+    lims = _robust_limits(all_vals, q_low=0.05, q_high=0.95, pad_ratio=0.10)
+    if lims is not None:
+        plt.ylim(*lims)
+    plt.xlabel("Instance")
+    plt.ylabel("Mean Objective")
+    plt.title("Per-instance Mean Objective: PPO_ALL vs ALNS A/B (Zoomed)")
+    plt.grid(axis="y", linestyle="--", linewidth=0.6, alpha=0.55)
+    plt.legend(fontsize=8)
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=140)
+    plt.close()
+
+
+def _plot_per_instance_ppo_all_vs_alns_columns(
+    matrix_rows: Sequence[Dict[str, Any]],
+    out_path: Path,
+) -> None:
+    if not matrix_rows:
+        return
+    instances = sorted({str(r.get("test_instance_id", "")) for r in matrix_rows}, key=_instance_sort_key)
+    if not instances:
+        return
+
+    lookup = {
+        (str(r.get("algorithm_id", "")), str(r.get("test_instance_id", ""))): _to_float(r.get("mean_objective"))
+        for r in matrix_rows
+    }
+    all_algorithms = {str(r.get("algorithm_id", "")) for r in matrix_rows}
+    if "PPO_ALL" not in all_algorithms:
+        return
+    alns_ids = sorted(
+        {
+            str(r.get("algorithm_id", ""))
+            for r in matrix_rows
+            if str(r.get("source_family", "")).upper() == "ALNS"
+        }
+    )
+    algorithms = ["PPO_ALL"] + alns_ids
+    if len(algorithms) <= 1:
+        return
+
+    x = np.arange(len(instances), dtype=float)
+    width = 0.84 / max(1, len(algorithms))
+    plt.figure(figsize=(max(10, len(instances) * 0.58), 6))
+    plotted = 0
+    for idx, algo in enumerate(algorithms):
+        offset = (idx - (len(algorithms) - 1) / 2.0) * width
+        vals = [lookup.get((algo, instance), math.nan) for instance in instances]
+        finite_vals = [v for v in vals if math.isfinite(v)]
+        if not finite_vals:
+            continue
+        y = np.array(vals, dtype=float)
+        mask = np.isfinite(y)
+        plt.bar(x[mask] + offset, y[mask], width=width * 0.95, alpha=0.88, label=algo)
+        plotted += 1
+    if plotted == 0:
+        plt.close()
+        return
+
+    all_vals = [lookup.get((algo, inst), math.nan) for algo in algorithms for inst in instances]
+    lims = _robust_limits(all_vals, q_low=0.05, q_high=0.95, pad_ratio=0.12)
+    if lims is not None:
+        plt.ylim(*lims)
+    plt.xticks(x, instances, rotation=60, ha="right")
+    plt.xlabel("Instance")
+    plt.ylabel("Mean Objective")
+    plt.title("Per-instance Column Plot: PPO_ALL vs ALNS A/B (Zoomed)")
+    plt.grid(axis="y", linestyle="--", linewidth=0.6, alpha=0.55)
+    plt.legend(fontsize=8)
     plt.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=140)
@@ -2566,6 +3015,14 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
     ttt_run_rows, ttt_instance_rows, ttt_summary_rows = _time_to_target(
         progress_run_rows=progress_run_rows,
         cp_map=cp_map,
+        target_gap=args.target_gap,
+    )
+    all_method_run_rows = _build_all_method_run_rows(
+        eval_rows=eval_rows,
+        alns_eval_rows=alns_eval_rows,
+    )
+    all_method_ttt_run_rows, all_method_ttt_summary_rows = _all_methods_time_to_target_from_runs(
+        all_method_run_rows=all_method_run_rows,
         target_gap=args.target_gap,
     )
     action_usage_run_rows, action_usage_instance_rows, action_usage_global_rows = _action_usage_tables(action_rows)
@@ -3070,6 +3527,53 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
         ],
     )
     _write_csv(
+        tables_dir / "all_methods_eval_runs.csv",
+        all_method_run_rows,
+        fieldnames=[
+            "method_id",
+            "source_family",
+            "checkpoint_seed",
+            "test_instance_id",
+            "instance_index",
+            "run_seed",
+            "objective",
+            "runtime_seconds",
+            "cp_objective",
+            "gap_to_cp",
+        ],
+    )
+    _write_csv(
+        tables_dir / "all_methods_time_to_target_runs.csv",
+        all_method_ttt_run_rows,
+        fieldnames=[
+            "method_id",
+            "source_family",
+            "checkpoint_seed",
+            "test_instance_id",
+            "instance_index",
+            "run_seed",
+            "cp_objective",
+            "target_gap",
+            "target_objective",
+            "time_to_target_seconds",
+            "reached_target",
+        ],
+    )
+    _write_csv(
+        tables_dir / "all_methods_time_to_target_summary.csv",
+        all_method_ttt_summary_rows,
+        fieldnames=[
+            "method_id",
+            "source_family",
+            "checkpoint_seed",
+            "n_runs",
+            "target_reached_runs",
+            "target_reached_fraction",
+            "mean_time_to_target_seconds",
+            "median_time_to_target_seconds",
+        ],
+    )
+    _write_csv(
         tables_dir / "training_diagnostics.csv",
         training_rows,
         fieldnames=[
@@ -3126,6 +3630,28 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
         _plot_ppo_vs_alns_heatmap(ppo_vs_alns_matrix_rows, out_path=ppo_alns_plots_dir / "heatmap_mean_objective.png")
         _plot_ppo_all_vs_alns_scatter(ppo_vs_alns_rows, out_path=ppo_alns_plots_dir / "ppo_all_vs_alns_scatter.png")
         _plot_ppo_all_vs_alns_diff_boxplot(ppo_vs_alns_rows, out_path=ppo_alns_plots_dir / "ppo_all_vs_alns_diff_boxplot.png")
+        _plot_per_instance_ppo_all_vs_alns_columns(
+            ppo_vs_alns_matrix_rows,
+            out_path=ppo_alns_plots_dir / "per_instance_ppo_all_vs_alns_columns.png",
+        )
+    if all_method_run_rows:
+        all_methods_plots_dir = plots_dir / "all_methods"
+        _plot_all_methods_cactus_time_to_target(
+            all_method_ttt_run_rows,
+            out_path=all_methods_plots_dir / "cactus_time_to_target_vs_cp_all_methods.png",
+        )
+        _plot_all_methods_cactus_gap_to_cp(
+            all_method_run_rows,
+            out_path=all_methods_plots_dir / "cactus_gap_to_cp_all_methods.png",
+        )
+        _plot_all_methods_boxplot_gap_to_cp(
+            all_method_run_rows,
+            out_path=all_methods_plots_dir / "boxplot_gap_to_cp_all_methods.png",
+        )
+        _plot_all_methods_boxplot_runtime(
+            all_method_run_rows,
+            out_path=all_methods_plots_dir / "boxplot_runtime_all_methods.png",
+        )
 
     metadata = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -3157,6 +3683,8 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
         "n_action_rows": len(action_rows),
         "n_convergence_run_rows": len(conv_run_rows),
         "n_time_to_target_rows": len(ttt_run_rows),
+        "n_all_method_run_rows": len(all_method_run_rows),
+        "n_all_method_time_to_target_rows": len(all_method_ttt_run_rows),
         "n_training_diagnostics_rows": len(training_rows),
         "n_quality_pass": sum(1 for r in quality_checks if str(r.get("status")) == "PASS"),
         "n_quality_fail": sum(1 for r in quality_checks if str(r.get("status")) == "FAIL"),

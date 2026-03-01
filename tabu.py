@@ -80,7 +80,7 @@ def _canonical_swap_move(
 def tabu(
     instance: RWS.Instance,
     schedule: RWS.Schedule,
-    tabu_length: int = 10,
+    tabu_length: int = 40,
     timeout: float = 10.0,
     max_neighbors: int = 64,
     use_objective_tiebreaker: bool = False,
