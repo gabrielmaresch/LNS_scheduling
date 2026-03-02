@@ -16,9 +16,17 @@ analysis_*/*
 analysis_alns/*
 analysis_ppo/*
 
+# Generated benchmark outputs (keep benchmark scripts/configs trackable)
+benchmark_alns/alns_plain/
+benchmark_alns/alns_late_phase/
+benchmark_PPO/ppo_late_phase/
+benchmark_PPO/manual_checkpoint_benchmark/
+benchmark_baseline/baseline_runs*/
+benchmark_baseline/*.csv
+benchmark_baseline/*.csv.bak_*
+
 # Ignore local MiniZinc instance variant
 rws_instance.mzn
 
 # Additional instances
 Instances2000/
-
