@@ -282,8 +282,8 @@ def _build_cp_baseline_rows(baseline_csv_path: Path) -> Tuple[List[Dict[str, Any
         cp_map[instance] = cp_obj
         cp_rows.append(
             {
-                "algorithm": "CP-SAT",
-                "variant": "CP-SAT",
+                "algorithm": "TABU",
+                "variant": "TABU",
                 "instance": instance,
                 "instance_index": chosen["instance_index"],
                 "seed": None,
@@ -370,9 +370,21 @@ def _per_instance_aggregation(alns_rows: Sequence[Dict[str, Any]], cp_map: Dict[
     out: List[Dict[str, Any]] = []
     for (instance, algorithm), rows in grouped.items():
         objectives = [float(r["objective"]) for r in rows]
+        runtimes = [float(r.get("runtime_seconds", math.nan)) for r in rows]
         gaps = [_gap_to_cp(float(r["objective"]), cp_map.get(str(instance), math.nan)) for r in rows]
         mean_obj = _safe_mean(objectives)
         std_obj = _safe_std(objectives)
+        mean_runtime = _safe_mean(runtimes)
+        best_obj = _safe_min(objectives)
+        best_rows = [
+            row
+            for row in rows
+            if math.isfinite(float(row.get("objective", math.nan)))
+            and abs(float(row.get("objective", math.nan)) - best_obj) <= EPS
+        ]
+        best_runtime = _safe_min(
+            [float(row.get("runtime_seconds", math.nan)) for row in best_rows]
+        )
         cv = std_obj / abs(mean_obj) if (math.isfinite(std_obj) and math.isfinite(mean_obj) and abs(mean_obj) > EPS) else math.nan
         out.append(
             {
@@ -382,10 +394,12 @@ def _per_instance_aggregation(alns_rows: Sequence[Dict[str, Any]], cp_map: Dict[
                 "n_seeds": len(rows),
                 "mean_objective": mean_obj,
                 "median_objective": _safe_median(objectives),
-                "best_objective": _safe_min(objectives),
+                "best_objective": best_obj,
                 "std_objective": std_obj,
                 "min_objective": _safe_min(objectives),
                 "max_objective": _safe_max(objectives),
+                "mean_runtime_seconds": mean_runtime,
+                "best_objective_runtime_seconds": best_runtime,
                 "mean_gap_to_cp": _safe_mean(gaps),
                 "best_gap_to_cp": _safe_min(gaps),
                 "cv_objective": cv,
@@ -395,40 +409,62 @@ def _per_instance_aggregation(alns_rows: Sequence[Dict[str, Any]], cp_map: Dict[
     return out
 
 
-def _win_loss(x: float, y: float) -> str:
+def _win_loss(x: float, y: float, runtime_x: float = math.nan, runtime_y: float = math.nan) -> str:
     if not (math.isfinite(x) and math.isfinite(y)):
         return "missing"
     if x < y - EPS:
         return "win"
     if y < x - EPS:
         return "loss"
+    # Objective tie: prefer lower computation time when both runtimes are known.
+    if math.isfinite(runtime_x) and math.isfinite(runtime_y):
+        if runtime_x < runtime_y - EPS:
+            return "win"
+        if runtime_y < runtime_x - EPS:
+            return "loss"
     return "tie"
 
 
-def _win_loss_summary(per_instance_stats: Sequence[Dict[str, Any]], algorithm_a: str, algorithm_b: str, cp_map: Dict[str, float]) -> List[Dict[str, Any]]:
+def _win_loss_summary(
+    per_instance_stats: Sequence[Dict[str, Any]],
+    algorithm_a: str,
+    algorithm_b: str,
+    cp_map: Dict[str, float],
+    baseline_runtime_map: Dict[str, float] | None = None,
+) -> List[Dict[str, Any]]:
     by_instance_algo = {(r["instance"], r["algorithm"]): r for r in per_instance_stats}
     instances = sorted({str(r["instance"]) for r in per_instance_stats}, key=_instance_sort_key)
+    baseline_runtime_lookup = baseline_runtime_map or {}
     comparisons: Dict[str, Dict[str, int]] = {
         "mean_A_vs_B": {"win": 0, "tie": 0, "loss": 0, "missing": 0},
         "best_A_vs_B": {"win": 0, "tie": 0, "loss": 0, "missing": 0},
-        "mean_A_vs_CP": {"win": 0, "tie": 0, "loss": 0, "missing": 0},
-        "mean_B_vs_CP": {"win": 0, "tie": 0, "loss": 0, "missing": 0},
+        "mean_A_vs_BASELINE": {"win": 0, "tie": 0, "loss": 0, "missing": 0},
+        "best_A_vs_BASELINE": {"win": 0, "tie": 0, "loss": 0, "missing": 0},
+        "mean_B_vs_BASELINE": {"win": 0, "tie": 0, "loss": 0, "missing": 0},
+        "best_B_vs_BASELINE": {"win": 0, "tie": 0, "loss": 0, "missing": 0},
     }
 
     for instance in instances:
         ra = by_instance_algo.get((instance, algorithm_a))
         rb = by_instance_algo.get((instance, algorithm_b))
         cp = cp_map.get(instance, math.nan)
+        baseline_runtime = float(baseline_runtime_lookup.get(instance, math.nan))
 
         mean_a = float(ra["mean_objective"]) if ra is not None else math.nan
         mean_b = float(rb["mean_objective"]) if rb is not None else math.nan
         best_a = float(ra["best_objective"]) if ra is not None else math.nan
         best_b = float(rb["best_objective"]) if rb is not None else math.nan
+        mean_rt_a = float(ra.get("mean_runtime_seconds", math.nan)) if ra is not None else math.nan
+        mean_rt_b = float(rb.get("mean_runtime_seconds", math.nan)) if rb is not None else math.nan
+        best_rt_a = float(ra.get("best_objective_runtime_seconds", math.nan)) if ra is not None else math.nan
+        best_rt_b = float(rb.get("best_objective_runtime_seconds", math.nan)) if rb is not None else math.nan
 
-        comparisons["mean_A_vs_B"][_win_loss(mean_a, mean_b)] += 1
-        comparisons["best_A_vs_B"][_win_loss(best_a, best_b)] += 1
-        comparisons["mean_A_vs_CP"][_win_loss(mean_a, cp)] += 1
-        comparisons["mean_B_vs_CP"][_win_loss(mean_b, cp)] += 1
+        comparisons["mean_A_vs_B"][_win_loss(mean_a, mean_b, mean_rt_a, mean_rt_b)] += 1
+        comparisons["best_A_vs_B"][_win_loss(best_a, best_b, best_rt_a, best_rt_b)] += 1
+        comparisons["mean_A_vs_BASELINE"][_win_loss(mean_a, cp, mean_rt_a, baseline_runtime)] += 1
+        comparisons["best_A_vs_BASELINE"][_win_loss(best_a, cp, best_rt_a, baseline_runtime)] += 1
+        comparisons["mean_B_vs_BASELINE"][_win_loss(mean_b, cp, mean_rt_b, baseline_runtime)] += 1
+        comparisons["best_B_vs_BASELINE"][_win_loss(best_b, cp, best_rt_b, baseline_runtime)] += 1
 
     rows: List[Dict[str, Any]] = []
     for metric, counts in comparisons.items():
@@ -609,6 +645,24 @@ ITER_LINE_PATTERN = re.compile(r"^(?:\s*)iter=\d+\s")
 KEY_VALUE_PATTERN = re.compile(r"([A-Za-z_]+)=([^\s]+)")
 
 
+def _resolved_exploration_operator_name(
+    operator_type: str,
+    operator_name: str,
+    used_exploration: bool,
+) -> str:
+    name = str(operator_name).strip()
+    if not used_exploration:
+        return name
+    kind = str(operator_type).strip().lower()
+    if kind == "destroy" and name == "destroy_exploration":
+        # MBandit exploration destroy uses random-window with 25% fraction.
+        return "destroy_random_window_25pct_exploration"
+    if kind == "repair" and name == "repair_exploration":
+        # MBandit exploration repair uses single-shot exact repair (default solver/time).
+        return "repair_exact_exploration"
+    return name
+
+
 def _parse_iter_line(line: str) -> Dict[str, Any] | None:
     if not ITER_LINE_PATTERN.match(line):
         return None
@@ -659,6 +713,16 @@ def _parse_log_events(
         if math.isfinite(seen_best):
             prev = best_so_far
             best_so_far = min(best_so_far, seen_best)
+            destroy_resolved = _resolved_exploration_operator_name(
+                operator_type="destroy",
+                operator_name=str(parsed["destroy"]),
+                used_exploration=bool(parsed["used_exploration"]),
+            )
+            repair_resolved = _resolved_exploration_operator_name(
+                operator_type="repair",
+                operator_name=str(parsed["repair"]),
+                used_exploration=bool(parsed["used_exploration"]),
+            )
             curve_points.append(
                 {
                     "algorithm": algorithm,
@@ -675,13 +739,18 @@ def _parse_log_events(
                         "iteration": iteration,
                         "elapsed": elapsed,
                         "best_so_far_objective": best_so_far,
-                        "destroy": parsed["destroy"],
-                        "repair": parsed["repair"],
+                        "destroy": destroy_resolved,
+                        "repair": repair_resolved,
                     }
                 )
 
         delta = after - before if (math.isfinite(before) and math.isfinite(after)) else math.nan
-        for operator_type, operator_name in (("destroy", parsed["destroy"]), ("repair", parsed["repair"])):
+        for operator_type, operator_name_raw in (("destroy", parsed["destroy"]), ("repair", parsed["repair"])):
+            operator_name = _resolved_exploration_operator_name(
+                operator_type=operator_type,
+                operator_name=str(operator_name_raw),
+                used_exploration=bool(parsed["used_exploration"]),
+            )
             operator_events.append(
                 {
                     "algorithm": algorithm,
@@ -1465,7 +1534,7 @@ def _plot_boxplot_gaps(master_rows: Sequence[Dict[str, Any]], algorithm_a: str, 
     plt.boxplot([vals_a, vals_b], tick_labels=[algorithm_a, algorithm_b], showmeans=True)
     plt.axhline(0.0, color="gray", linestyle="--", linewidth=1)
     plt.ylim(y_lo, y_hi)
-    plt.ylabel("Final Relative Gap to CP")
+    plt.ylabel("Final Relative Gap to baseline")
     plt.title("Final Relative Gap Distribution")
     plt.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1530,7 +1599,7 @@ def _plot_global_convergence(global_curve_rows: Sequence[Dict[str, Any]], out_ob
         plt.plot(x, y, label=str(algorithm))
     plt.axhline(0.0, color="gray", linestyle="--", linewidth=1)
     plt.xlabel("Time (s)")
-    plt.ylabel("Global Mean Gap to CP")
+    plt.ylabel("Global Mean Gap to baseline")
     plt.title("Global Relative-Gap Convergence")
     plt.legend()
     plt.tight_layout()
@@ -1603,19 +1672,32 @@ def _plot_win_loss_summary_matrix(
     algorithm_a: str,
     algorithm_b: str,
     out_path: Path,
+    row_order: Sequence[str] | None = None,
+    row_label_map: Dict[str, str] | None = None,
+    title: str = "Win/Loss Summary Matrix",
 ) -> None:
     rows = list(win_loss_rows)
     if not rows:
         return
 
-    row_order = ["mean_A_vs_B", "best_A_vs_B", "mean_A_vs_CP", "mean_B_vs_CP"]
+    effective_row_order = list(row_order) if row_order is not None else [
+        "mean_A_vs_B",
+        "best_A_vs_B",
+        "mean_A_vs_BASELINE",
+        "best_A_vs_BASELINE",
+        "mean_B_vs_BASELINE",
+        "best_B_vs_BASELINE",
+    ]
     col_order = ["wins", "ties", "losses", "missing"]
-    row_label_map = {
+    default_row_label_map = {
         "mean_A_vs_B": f"Mean: {algorithm_a} vs {algorithm_b}",
         "best_A_vs_B": f"Best: {algorithm_a} vs {algorithm_b}",
-        "mean_A_vs_CP": f"Mean: {algorithm_a} vs CP",
-        "mean_B_vs_CP": f"Mean: {algorithm_b} vs CP",
+        "mean_A_vs_BASELINE": f"Mean: {algorithm_a} vs baseline",
+        "best_A_vs_BASELINE": f"Best: {algorithm_a} vs baseline",
+        "mean_B_vs_BASELINE": f"Mean: {algorithm_b} vs baseline",
+        "best_B_vs_BASELINE": f"Best: {algorithm_b} vs baseline",
     }
+    effective_row_label_map = row_label_map if row_label_map is not None else default_row_label_map
     col_label_map = {
         "wins": "Wins",
         "ties": "Ties",
@@ -1624,11 +1706,21 @@ def _plot_win_loss_summary_matrix(
     }
 
     row_lookup = {str(r.get("comparison", "")): r for r in rows}
-    selected_keys = [k for k in row_order if k in row_lookup]
+    selected_keys = [k for k in effective_row_order if k in row_lookup]
     if not selected_keys:
         selected_keys = [str(r.get("comparison", "")) for r in rows if str(r.get("comparison", ""))]
     if not selected_keys:
         return
+    for sparse_col in ("ties", "missing"):
+        all_zero = True
+        for key in selected_keys:
+            row = row_lookup.get(key, {})
+            value = _to_float(row.get(sparse_col))
+            if math.isfinite(value) and abs(value) > EPS:
+                all_zero = False
+                break
+        if all_zero:
+            col_order = [c for c in col_order if c != sparse_col]
 
     matrix = np.zeros((len(selected_keys), len(col_order)), dtype=float)
     for i, key in enumerate(selected_keys):
@@ -1645,7 +1737,7 @@ def _plot_win_loss_summary_matrix(
     plt.colorbar(im, fraction=0.04, pad=0.03, label="Instance count")
 
     plt.xticks(np.arange(len(col_order)), [col_label_map.get(c, c) for c in col_order])
-    plt.yticks(np.arange(len(selected_keys)), [row_label_map.get(k, k) for k in selected_keys])
+    plt.yticks(np.arange(len(selected_keys)), [effective_row_label_map.get(k, k) for k in selected_keys])
 
     threshold = max(vmax, 1.0) * 0.5
     for i in range(matrix.shape[0]):
@@ -1654,9 +1746,7 @@ def _plot_win_loss_summary_matrix(
             color = "white" if matrix[i, j] >= threshold else "black"
             plt.text(j, i, str(val), ha="center", va="center", color=color, fontsize=9)
 
-    plt.xlabel("Outcome")
-    plt.ylabel("Comparison")
-    plt.title("Win/Loss Summary Matrix")
+    plt.title(title)
     plt.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=150)
@@ -1849,11 +1939,11 @@ def _plot_best_absolute_vs_benchmark_logy(
     plt.figure(figsize=(max(9, len(labels) * 0.6), 5))
     plt.bar(x - width, vals_a_plot, width=width, label=algorithm_a)
     plt.bar(x, vals_b_plot, width=width, label=algorithm_b)
-    plt.bar(x + width, vals_cp_plot, width=width, label="CP benchmark")
+    plt.bar(x + width, vals_cp_plot, width=width, label="baseline")
     plt.yscale("log")
     plt.xticks(x, labels, rotation=60, ha="right")
     plt.ylabel("Best Objective (log scale)")
-    plt.title("Per-instance Best Objective vs CP Benchmark")
+    plt.title("Per-instance Best Objective vs Baseline")
     plt.legend()
     plt.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2344,13 +2434,26 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
             "std_objective",
             "min_objective",
             "max_objective",
+            "mean_runtime_seconds",
+            "best_objective_runtime_seconds",
             "mean_gap_to_cp",
             "best_gap_to_cp",
             "cv_objective",
         ],
     )
 
-    win_loss_rows = _win_loss_summary(per_instance_rows, algorithm_a=algo_a_label, algorithm_b=algo_b_label, cp_map=cp_map)
+    baseline_runtime_map = {
+        str(row.get("instance", "")): float(row.get("runtime_seconds", math.nan))
+        for row in cp_rows
+        if str(row.get("instance", "")) != ""
+    }
+    win_loss_rows = _win_loss_summary(
+        per_instance_rows,
+        algorithm_a=algo_a_label,
+        algorithm_b=algo_b_label,
+        cp_map=cp_map,
+        baseline_runtime_map=baseline_runtime_map,
+    )
     _write_csv(
         tables_dir / "win_loss_summary.csv",
         win_loss_rows,
@@ -2778,7 +2881,37 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
         win_loss_rows,
         algorithm_a=algo_a_label,
         algorithm_b=algo_b_label,
-        out_path=plots_dir / "win_loss_summary_matrix.png",
+        out_path=plots_dir / "win_loss_summary_matrix_A_vs_B.png",
+        row_order=["mean_A_vs_B", "best_A_vs_B"],
+        row_label_map={
+            "mean_A_vs_B": f"Mean: {algo_a_label} vs {algo_b_label}",
+            "best_A_vs_B": f"Best: {algo_a_label} vs {algo_b_label}",
+        },
+        title=f"Win/Loss Matrix: {algo_a_label} vs {algo_b_label}",
+    )
+    _plot_win_loss_summary_matrix(
+        win_loss_rows,
+        algorithm_a=algo_a_label,
+        algorithm_b=algo_b_label,
+        out_path=plots_dir / "win_loss_summary_matrix_A_vs_baseline.png",
+        row_order=["mean_A_vs_BASELINE", "best_A_vs_BASELINE"],
+        row_label_map={
+            "mean_A_vs_BASELINE": f"Mean: {algo_a_label} vs baseline",
+            "best_A_vs_BASELINE": f"Best: {algo_a_label} vs baseline",
+        },
+        title=f"Win/Loss Matrix: {algo_a_label} vs baseline",
+    )
+    _plot_win_loss_summary_matrix(
+        win_loss_rows,
+        algorithm_a=algo_a_label,
+        algorithm_b=algo_b_label,
+        out_path=plots_dir / "win_loss_summary_matrix_B_vs_baseline.png",
+        row_order=["mean_B_vs_BASELINE", "best_B_vs_BASELINE"],
+        row_label_map={
+            "mean_B_vs_BASELINE": f"Mean: {algo_b_label} vs baseline",
+            "best_B_vs_BASELINE": f"Best: {algo_b_label} vs baseline",
+        },
+        title=f"Win/Loss Matrix: {algo_b_label} vs baseline",
     )
     _plot_best_absolute_vs_benchmark_logy(
         per_instance_rows,
@@ -2864,6 +2997,7 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
         "n_master_rows": len(master_rows),
         "n_alns_rows": len(alns_rows),
         "n_cp_rows": len(cp_rows),
+        "n_baseline_rows": len(cp_rows),
         "n_run_logs_parsed": len(run_meta_rows),
         "n_operator_events": len(operator_events),
     }
@@ -2889,7 +3023,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--variant-a", default="alns_plain", help="Variant directory for ALNS-A.")
     parser.add_argument("--variant-b", default="alns_late_phase", help="Variant directory for ALNS-B.")
     parser.add_argument("--run-id", default=None, help="Run ID folder (e.g., 20260227-153053). If omitted, latest per variant.")
-    parser.add_argument("--target-gap", type=float, default=0.02, help="Target gap above CP for time-to-target analysis.")
+    parser.add_argument("--target-gap", type=float, default=0.02, help="Target gap above baseline for time-to-target analysis.")
     parser.add_argument("--time-step", type=float, default=1.0, help="Time grid step in seconds for convergence aggregation.")
     parser.add_argument(
         "--operator-improvement-min-prob",
@@ -2906,7 +3040,10 @@ def main() -> None:
     metadata = run_analysis(args)
     print("ALNS analysis finished.")
     print(f"Output directory: {metadata['output_dir']}")
-    print(f"Rows: master={metadata['n_master_rows']} alns={metadata['n_alns_rows']} cp={metadata['n_cp_rows']}")
+    print(
+        f"Rows: master={metadata['n_master_rows']} "
+        f"alns={metadata['n_alns_rows']} baseline={metadata['n_baseline_rows']}"
+    )
     print(f"Parsed logs={metadata['n_run_logs_parsed']} operator_events={metadata['n_operator_events']}")
 
 

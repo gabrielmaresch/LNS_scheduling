@@ -1,7 +1,0 @@
-run_id=20260301-150937
-variant=alns_plain
-n_instances=15
-n_seeds=3
-timeout_seconds=150.0
-solver_setup=mixed(chuffed+gecode+tabu_chuffed) [matches multiarm_bandit main operator set]
-repair_weight_init=fast_slow_2_to_1

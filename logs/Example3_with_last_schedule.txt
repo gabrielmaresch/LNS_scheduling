@@ -33,13 +33,13 @@ A D
 
 # --- LNS APPENDIX ---
 final_objective=8.0
-runtime_seconds=947.138 iterations=106 solved=False
+runtime_seconds=912.953 iterations=102 solved=False
 
 mbandit_parameters:
 iterations_till_weight_update=10
 reaction_factor=0.2
 beta_softmax=1.2
-equal_move_allowed_freezeout=15
+late_phase_threshold=15
 late_phase_weight=10000
 late_phase_strict_improvement=True
 annealing_temperature=5.0
@@ -59,32 +59,29 @@ destroy_tabu_length=20
 
 last_schedule_shift_ids:
 day        0   1   2   3   4   5   6
-worker  0:   3   2   2   0   0   0   0
-worker  1:   1   1   3   3   3   0   0
-worker  2:   1   1   1   1   1   0   0
-worker  3:   1   1   1   1   0   0   0
-worker  4:   1   1   1   2   2   1   1
-worker  5:   0   0   1   1   3   3   0
-worker  6:   0   0   0   1   1   1   1
-worker  7:   1   0   0   0   1   1   1
-worker  8:   2   2   2   0   0   2   2
-worker  9:   2   2   0   2   2   2   2
-worker 10:   0   0   2   2   2   3   0
-worker 11:   0   2   2   2   2   2   2
-worker 12:   0   0   3   3   3   2   2
-worker 13:   2   0   0   3   3   3   3
-worker 14:   3   0   0   0   1   1   3
-worker 15:   3   3   0   0   0   3   3
-worker 16:   3   3   3   0   0   0   3
+worker  0:   0   0   1   1   1   1   0
+worker  1:   0   0   0   1   1   1   1
+worker  2:   0   0   0   0   1   1   1
+worker  3:   1   0   0   0   0   2   2
+worker  4:   2   2   2   0   0   0   0
+worker  5:   1   1   3   3   0   0   0
+worker  6:   0   3   3   3   3   0   0
+worker  7:   1   1   1   2   2   0   0
+worker  8:   2   2   2   3   3   0   0
+worker  9:   2   2   2   2   2   2   0
+worker 10:   0   2   2   2   2   2   3
+worker 11:   3   0   0   2   2   2   3
+worker 12:   3   3   3   0   0   1   1
+worker 13:   3   3   0   0   0   3   3
+worker 14:   1   1   0   0   1   3   3
+worker 15:   3   0   1   1   3   3   0
+worker 16:   1   1   1   1   3   3   0
 
 violation_diagnostic_from_find_first_violation_after:
-- w0, d0, type=forbidden_sequence_2
-- w0, d1, type=forbidden_sequence_2
-- w4, d4, type=forbidden_sequence_2
-- w4, d5, type=forbidden_sequence_2
-- w5, d0, type=shift_req_under_A_by_2
-- w5, d1, type=shift_req_under_N_by_1
-- w9, d2, type=min_consecutive_off
-- w10, d5, type=min_consecutive_shift_3
-- w12, d4, type=forbidden_sequence_2
-- w12, d5, type=forbidden_sequence_2
+- w0, d0, type=shift_req_under_A_by_2
+- w0, d6, type=shift_req_under_A_by_3
+- w13, d6, type=forbidden_sequence_2
+- w14, d0, type=forbidden_sequence_2
+- w14, d4, type=min_consecutive_shift_1
+- w15, d1, type=min_consecutive_off
+- w15, d6, type=min_consecutive_off
