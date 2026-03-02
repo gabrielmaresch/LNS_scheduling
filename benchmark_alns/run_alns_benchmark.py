@@ -171,7 +171,7 @@ def _print_specs_readback(
 
 def _configure_variant(mab: MBandit, variant: str) -> None:
     if variant == "alns_plain":
-        mab.equal_move_allowed_freezeout = 0
+        mab.late_phase_threshold = 0
         mab.late_phase_strict_improvement = False
         return
     if variant != "alns_late_phase":

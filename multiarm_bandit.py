@@ -58,7 +58,7 @@ class MBandit:
     iterations_till_weight_update: int = 10
     reaction_factor: float = 0.2
     beta_softmax: float = 1.2
-    equal_move_allowed_freezeout: int = 15
+    late_phase_threshold: int = 15
     late_phase_weight: int = 10000
     late_phase_strict_improvement: bool = True
     
@@ -134,8 +134,8 @@ class MBandit:
         if self.min_annealing_temperature > self.annealing_temperature:
             raise ValueError("min_temperature must be <= annealing_temperature")
         self.initial_annealing_temperature = float(self.annealing_temperature)
-        if self.equal_move_allowed_freezeout < 0:
-            raise ValueError("equal_move_allowed_freezeout must be >= 0")
+        if self.late_phase_threshold < 0:
+            raise ValueError("late_phase_threshold must be >= 0")
         if self.late_phase_weight <= 0:
             raise ValueError("late_phase_weight must be > 0")
         if not (0.0 <= self.binomial_p <= 0.5):
@@ -317,7 +317,7 @@ class MBandit:
                             self.objective_current_solution,
                             self.objective_current_solution,
                             self.annealing_temperature,
-                            self.equal_move_allowed_freezeout,
+                            self.late_phase_threshold,
                             noop=True,
                         )
                     except TypeError:
@@ -435,7 +435,7 @@ class MBandit:
         use_exploration = self.exploration_steps_remaining > 0
         if use_exploration:
             self.exploration_steps_remaining -= 1
-        early_phase = incumbent_objective > float(self.equal_move_allowed_freezeout)
+        early_phase = incumbent_objective > float(self.late_phase_threshold)
         lns._late_phase = not early_phase
         lns._late_phase_weight = int(self.late_phase_weight)
         lns._late_phase_strict_improvement = bool(
@@ -541,7 +541,7 @@ class MBandit:
                     self.objective_current_solution,
                     contender_objective,
                     self.annealing_temperature,
-                    self.equal_move_allowed_freezeout,
+                    self.late_phase_threshold,
                 )
         elif repair_error is None:
             repair_failed = True
@@ -1349,7 +1349,7 @@ if __name__ == "__main__":
         "iterations_till_weight_update",
         "reaction_factor",
         "beta_softmax",
-        "equal_move_allowed_freezeout",
+        "late_phase_threshold",
         "late_phase_weight",
         "late_phase_strict_improvement",
         "annealing_temperature",

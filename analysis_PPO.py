@@ -22,11 +22,14 @@ os.environ.setdefault("XDG_CACHE_HOME", str(MPL_CACHE_DIR))
 import matplotlib
 
 matplotlib.use("Agg")
+matplotlib.rcParams["savefig.bbox"] = "tight"
+matplotlib.rcParams["savefig.pad_inches"] = 0.25
 import matplotlib.pyplot as plt
 import numpy as np
 
 
 EPS = 1e-9
+BASELINE_TS_PATTERN = re.compile(r"^baseline_runs(?:_.*)?_(\d{8}-\d{6})\.csv$")
 CHECKPOINT_LOG_PATTERN = re.compile(r"^===== instance=(\w+) run=(\d+)/(\d+) checkpoint=([^\s]+) =====$")
 ITER_PATTERN = re.compile(r"^iter=(\d+)\s")
 KEY_VALUE_PATTERN = re.compile(r"([A-Za-z_]+)=([^\s]+)")
@@ -273,14 +276,30 @@ def _relative_diff(value: float, reference: float) -> float:
     return value - reference
 
 
+def _baseline_timestamp(path: Path) -> datetime | None:
+    match = BASELINE_TS_PATTERN.match(path.name)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%d-%H%M%S")
+    except ValueError:
+        return None
+
+
 def _latest_baseline_csv(baseline_dir: Path) -> Path:
-    candidates = sorted(baseline_dir.glob("baseline_runs_*.csv"))
+    candidates: List[Tuple[datetime, str, Path]] = []
+    for path in baseline_dir.glob("baseline_runs*.csv"):
+        stamp = _baseline_timestamp(path)
+        if stamp is not None:
+            candidates.append((stamp, path.name, path))
     if not candidates:
-        raise FileNotFoundError(f"no baseline_runs_*.csv found in {baseline_dir}")
-    non_aggregate = [p for p in candidates if "aggregate" not in p.name.lower()]
-    if non_aggregate:
-        return non_aggregate[-1]
-    return candidates[-1]
+        raise FileNotFoundError(
+            f"no baseline_runs*_<YYYYMMDD-HHMMSS>.csv found in {baseline_dir}"
+        )
+    non_aggregate = [item for item in candidates if "aggregate" not in item[1].lower()]
+    pool = non_aggregate if non_aggregate else candidates
+    pool.sort(key=lambda t: (t[0], t[1]))
+    return pool[-1][2]
 
 
 def _build_cp_map(baseline_csv: Path) -> Dict[str, float]:
@@ -3702,8 +3721,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--alns-variant-a", default="alns_plain", help="First ALNS variant under benchmark_alns.")
     parser.add_argument("--alns-variant-b", default="alns_late_phase", help="Second ALNS variant under benchmark_alns.")
     parser.add_argument("--alns-run-id", default=None, help="ALNS run folder id (if omitted, latest per ALNS variant is used).")
-    parser.add_argument("--baseline-dir", default="benchmark_baseline", help="Directory with baseline_runs_*.csv for gap metrics.")
-    parser.add_argument("--baseline-csv", default="", help="Explicit baseline csv path. If empty, latest baseline_runs_*.csv is used.")
+    parser.add_argument(
+        "--baseline-dir",
+        default="benchmark_baseline",
+        help="Directory with baseline_runs*_<YYYYMMDD-HHMMSS>.csv for gap metrics.",
+    )
+    parser.add_argument(
+        "--baseline-csv",
+        default="",
+        help="Explicit baseline csv path. If empty, latest timestamped baseline_runs file is used.",
+    )
     parser.add_argument(
         "--checkpoint-run-id",
         default=None,

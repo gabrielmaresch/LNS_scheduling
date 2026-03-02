@@ -155,7 +155,7 @@ class drl_alns:
     low_conflict_improvement_bonus: float = 3.0
     near_feasible_solve_bonus: float = 5.0
     last_violation_bonus: float = 25.0
-    equal_move_allowed_freezeout: int = 15
+    late_phase_threshold: int = 15
     late_phase_weight: int = 10000
     late_phase_strict_improvement: bool = True
 
@@ -267,7 +267,7 @@ class drl_alns:
             objective_gap_to_zero = math.log1p(max(0.0, self.current_objective))
         is_latephase = float(
             math.isfinite(self.current_objective)
-            and self.current_objective <= float(self.equal_move_allowed_freezeout)
+            and self.current_objective <= float(self.late_phase_threshold)
         )
 
         return np.array([
@@ -376,7 +376,7 @@ class drl_alns:
         old_obj = self.current_objective
         has_old_obj = math.isfinite(old_obj)
         early_phase = (not has_old_obj) or (
-            old_obj > float(self.equal_move_allowed_freezeout)
+            old_obj > float(self.late_phase_threshold)
         )
         self.lns._late_phase = not early_phase
         self.lns._late_phase_weight = int(self.late_phase_weight)
@@ -912,7 +912,7 @@ class drl_alns:
                     "best_objective": self.best_objective,
                     "current_objective": self.current_objective,
                     "total_steps": total_steps,
-                    "equal_move_allowed_freezeout": self.equal_move_allowed_freezeout,
+                    "late_phase_threshold": self.late_phase_threshold,
                     "late_phase_weight": self.late_phase_weight,
                     "late_phase_strict_improvement": self.late_phase_strict_improvement,
                 },

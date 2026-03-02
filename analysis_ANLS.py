@@ -20,11 +20,15 @@ os.environ.setdefault("XDG_CACHE_HOME", str(MPL_CACHE_DIR))
 
 import matplotlib
 matplotlib.use("Agg")
+matplotlib.rcParams["savefig.bbox"] = "tight"
+matplotlib.rcParams["savefig.pad_inches"] = 0.25
 import matplotlib.pyplot as plt
 import numpy as np
 
 
 EPS = 1e-9
+BASELINE_TS_PATTERN = re.compile(r"^baseline_runs(?:_.*)?_(\d{8}-\d{6})\.csv$")
+EFFICIENCY_YCAP_PERCENTILE = 95.0
 
 
 def _to_float(value: Any) -> float:
@@ -152,31 +156,30 @@ def _read_csv(path: Path) -> List[Dict[str, str]]:
         return list(reader)
 
 
+def _baseline_timestamp(path: Path) -> datetime | None:
+    match = BASELINE_TS_PATTERN.match(path.name)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%d-%H%M%S")
+    except ValueError:
+        return None
+
+
 def _latest_baseline_csv(benchmark_baseline_dir: Path) -> Path:
-    candidates = sorted(benchmark_baseline_dir.glob("baseline_runs_*.csv"))
+    candidates: List[Tuple[datetime, str, Path]] = []
+    for path in benchmark_baseline_dir.glob("baseline_runs*.csv"):
+        stamp = _baseline_timestamp(path)
+        if stamp is not None:
+            candidates.append((stamp, path.name, path))
     if not candidates:
-        raise FileNotFoundError(f"no baseline_runs_*.csv found in {benchmark_baseline_dir}")
-    scored: List[Tuple[int, int, int, Path]] = []
-    for idx, path in enumerate(candidates):
-        try:
-            rows = _read_csv(path)
-        except Exception:
-            continue
-        finite_count = 0
-        finite_instances: set[str] = set()
-        for row in rows:
-            obj = _to_float(row.get("objective"))
-            if math.isfinite(obj):
-                finite_count += 1
-                instance = str(row.get("instance", "")).strip()
-                if instance:
-                    finite_instances.add(instance)
-        # Sort by: unique finite instances first, then finite rows, then recency by index.
-        scored.append((len(finite_instances), finite_count, idx, path))
-    if not scored:
-        return candidates[-1]
-    scored.sort(key=lambda t: (t[0], t[1], t[2]))
-    return scored[-1][3]
+        raise FileNotFoundError(
+            f"no baseline_runs*_<YYYYMMDD-HHMMSS>.csv found in {benchmark_baseline_dir}"
+        )
+    non_aggregate = [item for item in candidates if "aggregate" not in item[1].lower()]
+    pool = non_aggregate if non_aggregate else candidates
+    pool.sort(key=lambda t: (t[0], t[1]))
+    return pool[-1][2]
 
 
 def _latest_run_id(variant_dir: Path) -> str:
@@ -465,6 +468,8 @@ def _wilcoxon_signed_rank_exact(diffs: Sequence[float]) -> Dict[str, float]:
             "w_plus": math.nan,
             "w_minus": math.nan,
             "w_stat": math.nan,
+            "p_value_one_sided_greater": math.nan,
+            "p_value_one_sided_less": math.nan,
             "p_value_two_sided": math.nan,
         }
 
@@ -476,7 +481,9 @@ def _wilcoxon_signed_rank_exact(diffs: Sequence[float]) -> Dict[str, float]:
     w_stat = min(w_plus, w_minus)
 
     n = len(nz)
-    count = 0
+    count_ws = 0
+    count_wp_ge = 0
+    count_wp_le = 0
     total = 1 << n
     for mask in range(total):
         wp = 0.0
@@ -485,67 +492,75 @@ def _wilcoxon_signed_rank_exact(diffs: Sequence[float]) -> Dict[str, float]:
                 wp += ranks[bit]
         ws = min(wp, rank_total - wp)
         if ws <= w_stat + 1e-12:
-            count += 1
-    p_two_sided = count / total
+            count_ws += 1
+        if wp >= w_plus - 1e-12:
+            count_wp_ge += 1
+        if wp <= w_plus + 1e-12:
+            count_wp_le += 1
+    p_two_sided = count_ws / total
+    p_one_sided_greater = count_wp_ge / total
+    p_one_sided_less = count_wp_le / total
 
     return {
         "n_nonzero": float(n),
         "w_plus": float(w_plus),
         "w_minus": float(w_minus),
         "w_stat": float(w_stat),
+        "p_value_one_sided_greater": float(min(1.0, p_one_sided_greater)),
+        "p_value_one_sided_less": float(min(1.0, p_one_sided_less)),
         "p_value_two_sided": float(min(1.0, p_two_sided)),
     }
 
 
-def _paired_statistics(per_instance_stats: Sequence[Dict[str, Any]], algorithm_a: str, algorithm_b: str) -> List[Dict[str, Any]]:
+def _paired_statistics(
+    per_instance_stats: Sequence[Dict[str, Any]],
+    algorithm_a: str,
+    algorithm_b: str,
+    cp_map: Dict[str, float],
+) -> List[Dict[str, Any]]:
     by_instance_algo = {(r["instance"], r["algorithm"]): r for r in per_instance_stats}
     instances = sorted({str(r["instance"]) for r in per_instance_stats}, key=_instance_sort_key)
-    diffs: List[float] = []
-    pct_improve_b_over_a: List[float] = []
+
+    def _test_rows(test_name: str, advantages: Sequence[float]) -> List[Dict[str, Any]]:
+        wilcoxon = _wilcoxon_signed_rank_exact(advantages)
+        return [
+            {"metric": f"{test_name}_n_pairs", "value": float(len(advantages))},
+            {"metric": f"{test_name}_mean_advantage", "value": _safe_mean(advantages)},
+            {"metric": f"{test_name}_median_advantage", "value": _safe_median(advantages)},
+            {"metric": f"{test_name}_wilcoxon_n_nonzero", "value": wilcoxon["n_nonzero"]},
+            {"metric": f"{test_name}_wilcoxon_w_plus", "value": wilcoxon["w_plus"]},
+            {
+                "metric": f"{test_name}_wilcoxon_p_value_one_sided_greater",
+                "value": wilcoxon["p_value_one_sided_greater"],
+            },
+            {
+                "metric": f"{test_name}_wilcoxon_p_value_two_sided",
+                "value": wilcoxon["p_value_two_sided"],
+            },
+        ]
+
+    a_vs_b_adv: List[float] = []
+    a_vs_cp_adv: List[float] = []
+    b_vs_cp_adv: List[float] = []
     for instance in instances:
         ra = by_instance_algo.get((instance, algorithm_a))
         rb = by_instance_algo.get((instance, algorithm_b))
-        if ra is None or rb is None:
-            continue
-        mean_a = float(ra["mean_objective"])
-        mean_b = float(rb["mean_objective"])
-        if not (math.isfinite(mean_a) and math.isfinite(mean_b)):
-            continue
-        diff = mean_a - mean_b
-        diffs.append(diff)
-        pct_improve_b_over_a.append(diff / (abs(mean_a) if abs(mean_a) > EPS else 1.0))
+        cp = float(cp_map.get(instance, math.nan))
+        mean_a = float(ra["mean_objective"]) if ra is not None else math.nan
+        mean_b = float(rb["mean_objective"]) if rb is not None else math.nan
 
-    wilcoxon = _wilcoxon_signed_rank_exact(diffs)
-    rows = [
-        {
-            "metric": "mean_difference_A_minus_B",
-            "value": _safe_mean(diffs),
-        },
-        {
-            "metric": "median_difference_A_minus_B",
-            "value": _safe_median(diffs),
-        },
-        {
-            "metric": "wilcoxon_n_nonzero",
-            "value": wilcoxon["n_nonzero"],
-        },
-        {
-            "metric": "wilcoxon_w_stat",
-            "value": wilcoxon["w_stat"],
-        },
-        {
-            "metric": "wilcoxon_p_value_two_sided",
-            "value": wilcoxon["p_value_two_sided"],
-        },
-        {
-            "metric": "mean_pct_improvement_B_over_A",
-            "value": _safe_mean(pct_improve_b_over_a),
-        },
-        {
-            "metric": "median_pct_improvement_B_over_A",
-            "value": _safe_median(pct_improve_b_over_a),
-        },
-    ]
+        # Positive advantage means the left hypothesis is better (lower objective).
+        if math.isfinite(mean_a) and math.isfinite(mean_b):
+            a_vs_b_adv.append(mean_b - mean_a)
+        if math.isfinite(mean_a) and math.isfinite(cp):
+            a_vs_cp_adv.append(cp - mean_a)
+        if math.isfinite(mean_b) and math.isfinite(cp):
+            b_vs_cp_adv.append(cp - mean_b)
+
+    rows: List[Dict[str, Any]] = []
+    rows.extend(_test_rows("test_A_better_than_B", a_vs_b_adv))
+    rows.extend(_test_rows("test_A_better_than_baseline", a_vs_cp_adv))
+    rows.extend(_test_rows("test_B_better_than_baseline", b_vs_cp_adv))
     return rows
 
 
@@ -1166,10 +1181,15 @@ def _operator_metrics(
                 "mean_improving_delta": _safe_mean(improving),
             }
         )
+    for row in phase_rows:
+        row["record_type"] = "phase_metrics"
 
-    efficiency_grouped = _group_rows(events, ["algorithm", "operator_type", "operator_name"])
+    efficiency_grouped = _group_rows(
+        events,
+        ["algorithm", "operator_type", "operator_name", "used_exploration"],
+    )
     efficiency_rows: List[Dict[str, Any]] = []
-    for (algorithm, operator_type, operator_name), rows in efficiency_grouped.items():
+    for (algorithm, operator_type, operator_name, used_exploration), rows in efficiency_grouped.items():
         total_improvement = 0.0
         total_time = 0.0
         for row in rows:
@@ -1185,6 +1205,36 @@ def _operator_metrics(
                 "algorithm": algorithm,
                 "operator_type": operator_type,
                 "operator_name": operator_name,
+                "used_exploration": _to_bool(used_exploration),
+                "total_improvement": total_improvement,
+                "total_operator_runtime_proxy_seconds": total_time,
+                "efficiency_improvement_per_second": (total_improvement / total_time) if total_time > EPS else math.nan,
+            }
+        )
+
+    phase_efficiency_grouped = _group_rows(
+        phase_events,
+        ["algorithm", "phase", "operator_type", "operator_name", "used_exploration"],
+    )
+    phase_efficiency_rows: List[Dict[str, Any]] = []
+    for (algorithm, phase, operator_type, operator_name, used_exploration), rows in phase_efficiency_grouped.items():
+        total_improvement = 0.0
+        total_time = 0.0
+        for row in rows:
+            d = float(row["delta_objective"])
+            rt = float(row["step_runtime"])
+            if math.isfinite(d) and d < -EPS:
+                total_improvement += -d
+            if math.isfinite(rt) and rt > 0:
+                total_time += rt
+        phase_efficiency_rows.append(
+            {
+                "record_type": "phase_efficiency",
+                "algorithm": algorithm,
+                "phase": phase,
+                "operator_type": operator_type,
+                "operator_name": operator_name,
+                "used_exploration": _to_bool(used_exploration),
                 "total_improvement": total_improvement,
                 "total_operator_runtime_proxy_seconds": total_time,
                 "efficiency_improvement_per_second": (total_improvement / total_time) if total_time > EPS else math.nan,
@@ -1217,9 +1267,6 @@ def _operator_metrics(
             }
         )
 
-    for row in phase_rows:
-        row["record_type"] = "phase_metrics"
-
     return (
         per_run_rows,
         per_instance_rows,
@@ -1229,7 +1276,7 @@ def _operator_metrics(
         entropy_paired_rows,
         phase_entropy_rows,
         contribution_freq,
-        phase_rows + efficiency_rows,
+        phase_rows + efficiency_rows + phase_efficiency_rows,
         acceptance_rows,
     )
 
@@ -1296,6 +1343,96 @@ def _entropy_outcome_correlations(
                     }
                 )
     return out
+
+
+def _entropy_aggregated_statistics(
+    entropy_instance_rows: Sequence[Dict[str, Any]],
+    algorithm_a: str,
+    algorithm_b: str,
+) -> List[Dict[str, Any]]:
+    aggregated_rows = _entropy_aggregated_per_instance(entropy_instance_rows)
+    by_instance_algo = {(str(r["instance"]), str(r["algorithm"])): r for r in aggregated_rows}
+    instances = sorted({str(r["instance"]) for r in aggregated_rows}, key=_instance_sort_key)
+
+    out_rows: List[Dict[str, Any]] = []
+    for source_col, metric_name in (
+        ("agg_selection_entropy_normalized", "selection_entropy_normalized"),
+        ("agg_effective_operator_count", "effective_operator_count"),
+        ("agg_acceptance_rate", "acceptance_rate"),
+    ):
+        diffs: List[float] = []
+        for instance in instances:
+            ra = by_instance_algo.get((instance, algorithm_a))
+            rb = by_instance_algo.get((instance, algorithm_b))
+            if ra is None or rb is None:
+                continue
+            va = float(ra[source_col])
+            vb = float(rb[source_col])
+            if math.isfinite(va) and math.isfinite(vb):
+                diffs.append(va - vb)
+        wilcoxon = _wilcoxon_signed_rank_exact(diffs)
+        out_rows.append(
+            {
+                "metric": metric_name,
+                "n_pairs": len(diffs),
+                "mean_diff_A_minus_B": _safe_mean(diffs),
+                "median_diff_A_minus_B": _safe_median(diffs),
+                "wilcoxon_p_value_one_sided_greater": wilcoxon["p_value_one_sided_greater"],
+                "wilcoxon_p_value_two_sided": wilcoxon["p_value_two_sided"],
+            }
+        )
+    return out_rows
+
+
+def _entropy_aggregated_per_instance(
+    entropy_instance_rows: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    per_instance_algo_grouped = _group_rows(entropy_instance_rows, ["instance", "algorithm"])
+    aggregated_rows: List[Dict[str, Any]] = []
+    for (instance, algorithm), rows in per_instance_algo_grouped.items():
+        aggregated_rows.append(
+            {
+                "instance": instance,
+                "instance_index": _instance_index(str(instance)),
+                "algorithm": algorithm,
+                "agg_selection_entropy_normalized": _safe_mean(
+                    [float(r["mean_selection_entropy_normalized"]) for r in rows]
+                ),
+                "agg_effective_operator_count": _safe_mean(
+                    [float(r["mean_effective_operator_count"]) for r in rows]
+                ),
+                "agg_acceptance_rate": _safe_mean([float(r["mean_acceptance_rate"]) for r in rows]),
+            }
+        )
+    aggregated_rows.sort(key=lambda r: (_instance_sort_key(str(r["instance"])), str(r["algorithm"])))
+    return aggregated_rows
+
+
+def _entropy_aggregated_summary(
+    aggregated_rows: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    grouped = _group_rows(aggregated_rows, ["algorithm"])
+    out_rows: List[Dict[str, Any]] = []
+    for (algorithm,), rows in grouped.items():
+        for source_col, metric_name in (
+            ("agg_selection_entropy_normalized", "selection_entropy_normalized"),
+            ("agg_effective_operator_count", "effective_operator_count"),
+            ("agg_acceptance_rate", "acceptance_rate"),
+        ):
+            values = [float(r[source_col]) for r in rows]
+            finite_vals = [v for v in values if math.isfinite(v)]
+            out_rows.append(
+                {
+                    "algorithm": algorithm,
+                    "metric": metric_name,
+                    "n_instances": len(finite_vals),
+                    "mean_value": _safe_mean(values),
+                    "median_value": _safe_median(values),
+                    "std_value": _safe_std(values),
+                }
+            )
+    out_rows.sort(key=lambda r: (str(r["algorithm"]), str(r["metric"])))
+    return out_rows
 
 
 def _plot_boxplot_gaps(master_rows: Sequence[Dict[str, Any]], algorithm_a: str, algorithm_b: str, out_path: Path) -> None:
@@ -1461,6 +1598,210 @@ def _plot_cv_distribution(per_instance_rows: Sequence[Dict[str, Any]], algorithm
     plt.close()
 
 
+def _plot_win_loss_summary_matrix(
+    win_loss_rows: Sequence[Dict[str, Any]],
+    algorithm_a: str,
+    algorithm_b: str,
+    out_path: Path,
+) -> None:
+    rows = list(win_loss_rows)
+    if not rows:
+        return
+
+    row_order = ["mean_A_vs_B", "best_A_vs_B", "mean_A_vs_CP", "mean_B_vs_CP"]
+    col_order = ["wins", "ties", "losses", "missing"]
+    row_label_map = {
+        "mean_A_vs_B": f"Mean: {algorithm_a} vs {algorithm_b}",
+        "best_A_vs_B": f"Best: {algorithm_a} vs {algorithm_b}",
+        "mean_A_vs_CP": f"Mean: {algorithm_a} vs CP",
+        "mean_B_vs_CP": f"Mean: {algorithm_b} vs CP",
+    }
+    col_label_map = {
+        "wins": "Wins",
+        "ties": "Ties",
+        "losses": "Losses",
+        "missing": "Missing",
+    }
+
+    row_lookup = {str(r.get("comparison", "")): r for r in rows}
+    selected_keys = [k for k in row_order if k in row_lookup]
+    if not selected_keys:
+        selected_keys = [str(r.get("comparison", "")) for r in rows if str(r.get("comparison", ""))]
+    if not selected_keys:
+        return
+
+    matrix = np.zeros((len(selected_keys), len(col_order)), dtype=float)
+    for i, key in enumerate(selected_keys):
+        row = row_lookup.get(key, {})
+        for j, col in enumerate(col_order):
+            value = _to_float(row.get(col))
+            matrix[i, j] = value if math.isfinite(value) else 0.0
+
+    fig_w = max(8.0, 1.45 * len(col_order) + 5.0)
+    fig_h = max(4.8, 0.9 * len(selected_keys) + 2.2)
+    plt.figure(figsize=(fig_w, fig_h))
+    vmax = float(np.max(matrix)) if matrix.size else 0.0
+    im = plt.imshow(matrix, cmap="YlGnBu", aspect="auto", vmin=0.0, vmax=max(vmax, 1.0))
+    plt.colorbar(im, fraction=0.04, pad=0.03, label="Instance count")
+
+    plt.xticks(np.arange(len(col_order)), [col_label_map.get(c, c) for c in col_order])
+    plt.yticks(np.arange(len(selected_keys)), [row_label_map.get(k, k) for k in selected_keys])
+
+    threshold = max(vmax, 1.0) * 0.5
+    for i in range(matrix.shape[0]):
+        for j in range(matrix.shape[1]):
+            val = int(round(float(matrix[i, j])))
+            color = "white" if matrix[i, j] >= threshold else "black"
+            plt.text(j, i, str(val), ha="center", va="center", color=color, fontsize=9)
+
+    plt.xlabel("Outcome")
+    plt.ylabel("Comparison")
+    plt.title("Win/Loss Summary Matrix")
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+
+
+def _plot_entropy_aggregated_summary(
+    entropy_agg_summary_rows: Sequence[Dict[str, Any]],
+    algorithm_a: str,
+    algorithm_b: str,
+    out_path: Path,
+) -> None:
+    rows = list(entropy_agg_summary_rows)
+    if not rows:
+        return
+    metrics_order = [
+        "selection_entropy_normalized",
+        "effective_operator_count",
+        "acceptance_rate",
+    ]
+    label_map = {
+        "selection_entropy_normalized": "Entropy (norm)",
+        "effective_operator_count": "Effective op count",
+        "acceptance_rate": "Acceptance rate",
+    }
+    lookup = {
+        (str(r.get("algorithm", "")), str(r.get("metric", ""))): float(r.get("mean_value", math.nan))
+        for r in rows
+    }
+    vals_a = [lookup.get((algorithm_a, m), math.nan) for m in metrics_order]
+    vals_b = [lookup.get((algorithm_b, m), math.nan) for m in metrics_order]
+    if not any(math.isfinite(v) for v in vals_a + vals_b):
+        return
+
+    x = np.arange(len(metrics_order))
+    width = 0.38
+    plt.figure(figsize=(8.5, 5))
+    plt.bar(x - width / 2, [v if math.isfinite(v) else 0.0 for v in vals_a], width=width, label=algorithm_a)
+    plt.bar(x + width / 2, [v if math.isfinite(v) else 0.0 for v in vals_b], width=width, label=algorithm_b)
+    plt.xticks(x, [label_map[m] for m in metrics_order])
+    plt.ylabel("Aggregated mean")
+    plt.title("Aggregated Entropy Metrics: Mean by Variant")
+    plt.grid(True, axis="y", alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+
+
+def _plot_entropy_aggregated_paired(
+    entropy_agg_rows: Sequence[Dict[str, Any]],
+    out_path: Path,
+) -> None:
+    rows = list(entropy_agg_rows)
+    if not rows:
+        return
+    metrics_order = [
+        "selection_entropy_normalized",
+        "effective_operator_count",
+        "acceptance_rate",
+    ]
+    label_map = {
+        "selection_entropy_normalized": "Entropy (norm)",
+        "effective_operator_count": "Effective op count",
+        "acceptance_rate": "Acceptance rate",
+    }
+    row_by_metric = {str(r.get("metric", "")): r for r in rows}
+    selected = [row_by_metric[m] for m in metrics_order if m in row_by_metric]
+    if not selected:
+        return
+
+    x = np.arange(len(selected))
+    diffs = [float(r.get("mean_diff_A_minus_B", math.nan)) for r in selected]
+    plt.figure(figsize=(9, 5))
+    plt.bar(x, [d if math.isfinite(d) else 0.0 for d in diffs], width=0.55, color="tab:green")
+    plt.axhline(0.0, color="gray", linestyle="--", linewidth=1)
+    plt.xticks(x, [label_map.get(str(r.get("metric", "")), str(r.get("metric", ""))) for r in selected])
+    plt.ylabel("Mean diff (A - B)")
+    plt.title("Aggregated Entropy Metrics: A minus B")
+    for i, row in enumerate(selected):
+        p_one = float(row.get("wilcoxon_p_value_one_sided_greater", math.nan))
+        if math.isfinite(p_one):
+            y = diffs[i] if math.isfinite(diffs[i]) else 0.0
+            plt.text(i, y, f"p1={p_one:.3f}", ha="center", va="bottom" if y >= 0 else "top", fontsize=8)
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+
+
+def _plot_entropy_aggregated_per_instance_diffs(
+    entropy_agg_per_instance_rows: Sequence[Dict[str, Any]],
+    algorithm_a: str,
+    algorithm_b: str,
+    out_path: Path,
+) -> None:
+    rows = list(entropy_agg_per_instance_rows)
+    if not rows:
+        return
+    by_instance_algo = {(str(r.get("instance", "")), str(r.get("algorithm", ""))): r for r in rows}
+    instances = sorted({str(r.get("instance", "")) for r in rows if str(r.get("instance", ""))}, key=_instance_sort_key)
+    if not instances:
+        return
+
+    metric_specs = [
+        ("agg_selection_entropy_normalized", "Entropy (norm) A-B"),
+        ("agg_effective_operator_count", "Effective count A-B"),
+        ("agg_acceptance_rate", "Acceptance rate A-B"),
+    ]
+
+    fig, axes = plt.subplots(3, 1, figsize=(max(10, len(instances) * 0.45), 10), sharex=True, constrained_layout=True)
+    plotted_any = False
+    x = np.arange(len(instances))
+    for ax, (col, label) in zip(axes, metric_specs):
+        diffs: List[float] = []
+        for instance in instances:
+            ra = by_instance_algo.get((instance, algorithm_a))
+            rb = by_instance_algo.get((instance, algorithm_b))
+            va = float(ra.get(col, math.nan)) if ra is not None else math.nan
+            vb = float(rb.get(col, math.nan)) if rb is not None else math.nan
+            diffs.append((va - vb) if (math.isfinite(va) and math.isfinite(vb)) else math.nan)
+        if not any(math.isfinite(v) for v in diffs):
+            ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
+            ax.set_axis_off()
+            continue
+        bar_vals = [v if math.isfinite(v) else 0.0 for v in diffs]
+        ax.bar(x, bar_vals, width=0.8)
+        ax.axhline(0.0, color="gray", linestyle="--", linewidth=1)
+        ax.set_ylabel(label)
+        ax.grid(True, axis="y", alpha=0.25)
+        plotted_any = True
+
+    if not plotted_any:
+        plt.close(fig)
+        return
+    axes[-1].set_xticks(x)
+    axes[-1].set_xticklabels(instances, rotation=70, ha="right", fontsize=8)
+    axes[-1].set_xlabel("Instance")
+    fig.suptitle("Aggregated Entropy Metrics per Instance (A - B)")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
 def _plot_best_absolute_vs_benchmark_logy(
     per_instance_rows: Sequence[Dict[str, Any]],
     cp_map: Dict[str, float],
@@ -1544,6 +1885,16 @@ def _operator_plot_id(operator_type: Any, operator_name: Any) -> str:
     return name
 
 
+def _strip_operator_type_prefix(label: str, operator_type: str) -> str:
+    text = str(label).strip()
+    op = str(operator_type).strip().lower()
+    lower = text.lower()
+    for prefix in (f"{op}_", f"{op}-", f"{op}:"):
+        if lower.startswith(prefix):
+            return text[len(prefix):].strip()
+    return text
+
+
 def _filter_operator_rows(
     rows: Sequence[Dict[str, Any]],
     operator_type: str | None,
@@ -1598,7 +1949,11 @@ def _plot_selection_heatmap(
         ax.set_yticks(np.arange(len(instances)))
         ax.set_yticklabels(instances)
         ax.set_xticks(np.arange(len(top_ops)))
-        ax.set_xticklabels(top_ops, rotation=70, ha="right", fontsize=8)
+        if operator_type is None:
+            xtick_labels = top_ops
+        else:
+            xtick_labels = [_strip_operator_type_prefix(op, operator_type) for op in top_ops]
+        ax.set_xticklabels(xtick_labels, rotation=70, ha="right", fontsize=8)
         ax.set_xlabel("Operator")
         ax.set_ylabel("Instance")
     fig.colorbar(im0, ax=axes, fraction=0.02, pad=0.02, label="Mean Selection Share")
@@ -1645,7 +2000,11 @@ def _plot_selection_difference_heatmap(
 
     plt.figure(figsize=(max(11, len(top_ops) * 0.62), max(6, len(instances) * 0.35)))
     im = plt.imshow(diff, aspect="auto", cmap="RdBu_r", vmin=-vmax, vmax=vmax)
-    plt.xticks(np.arange(len(top_ops)), top_ops, rotation=70, ha="right", fontsize=8)
+    if operator_type is None:
+        xtick_labels = top_ops
+    else:
+        xtick_labels = [_strip_operator_type_prefix(op, operator_type) for op in top_ops]
+    plt.xticks(np.arange(len(top_ops)), xtick_labels, rotation=70, ha="right", fontsize=8)
     plt.yticks(np.arange(len(instances)), instances)
     plt.xlabel("Operator")
     plt.ylabel("Instance")
@@ -1664,6 +2023,7 @@ def _plot_operator_improvement(
     algorithm_b: str,
     out_path: Path,
     operator_type: str | None = None,
+    min_improvement_probability: float = 0.01,
 ) -> None:
     rows = _filter_operator_rows(global_operator_rows, operator_type)
     if not rows:
@@ -1672,7 +2032,11 @@ def _plot_operator_improvement(
         row["operator_id"] = _operator_plot_id(row.get("operator_type"), row.get("operator_name"))
     a_lookup = {str(r["operator_id"]): float(r["mean_improvement_probability"]) for r in rows if r["algorithm"] == algorithm_a}
     b_lookup = {str(r["operator_id"]): float(r["mean_improvement_probability"]) for r in rows if r["algorithm"] == algorithm_b}
-    ops = sorted(set(a_lookup.keys()) | set(b_lookup.keys()))
+    ops = [
+        op
+        for op in sorted(set(a_lookup.keys()) | set(b_lookup.keys()))
+        if max(a_lookup.get(op, 0.0), b_lookup.get(op, 0.0)) >= float(min_improvement_probability)
+    ]
     ops = sorted(ops, key=lambda op: max(a_lookup.get(op, 0.0), b_lookup.get(op, 0.0)), reverse=True)[:18]
     if not ops:
         return
@@ -1681,12 +2045,205 @@ def _plot_operator_improvement(
     plt.figure(figsize=(max(10, len(ops) * 0.6), 5))
     plt.bar(x - width / 2, [a_lookup.get(op, 0.0) for op in ops], width=width, label=algorithm_a)
     plt.bar(x + width / 2, [b_lookup.get(op, 0.0) for op in ops], width=width, label=algorithm_b)
-    plt.xticks(x, ops, rotation=70, ha="right", fontsize=8)
+    if operator_type is None:
+        xtick_labels = ops
+    else:
+        xtick_labels = [_strip_operator_type_prefix(op, operator_type) for op in ops]
+    plt.xticks(x, xtick_labels, rotation=70, ha="right", fontsize=8)
     plt.ylabel("Mean Improvement Probability")
     prefix = f"{operator_type.capitalize()} " if operator_type else ""
     plt.title(f"{prefix}Operator Improvement Probability Comparison")
     plt.legend()
     plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+
+
+def _plot_operator_efficiency(
+    efficiency_rows: Sequence[Dict[str, Any]],
+    algorithm_a: str,
+    algorithm_b: str,
+    out_path: Path,
+    operator_type: str,
+) -> None:
+    rows = _filter_operator_rows(efficiency_rows, operator_type)
+    if not rows:
+        return
+
+    grouped = _group_rows(rows, ["algorithm", "operator_type", "operator_name"])
+    values: Dict[Tuple[str, str], float] = {}
+    for (algorithm, op_type, op_name), grp_rows in grouped.items():
+        total_improvement = float(sum(float(r.get("total_improvement", 0.0)) for r in grp_rows))
+        total_time = float(sum(float(r.get("total_operator_runtime_proxy_seconds", 0.0)) for r in grp_rows))
+        efficiency = (total_improvement / total_time) if total_time > EPS else math.nan
+        op_id = _operator_plot_id(op_type, op_name)
+        values[(str(algorithm), op_id)] = efficiency
+
+    ops = sorted({op for _, op in values.keys()})
+    ops = sorted(
+        ops,
+        key=lambda op: max(values.get((algorithm_a, op), 0.0), values.get((algorithm_b, op), 0.0)),
+        reverse=True,
+    )[:18]
+    if not ops:
+        return
+
+    x = np.arange(len(ops))
+    width = 0.42
+    vals_a = [values.get((algorithm_a, op), 0.0) for op in ops]
+    vals_b = [values.get((algorithm_b, op), 0.0) for op in ops]
+    plt.figure(figsize=(max(11, len(ops) * 0.6), 5))
+    plt.bar(x - width / 2, vals_a, width=width, label=algorithm_a)
+    plt.bar(x + width / 2, vals_b, width=width, label=algorithm_b)
+    xtick_labels = [_strip_operator_type_prefix(op, operator_type) for op in ops]
+    plt.xticks(x, xtick_labels, rotation=70, ha="right", fontsize=8)
+    plt.ylabel("Efficiency (improvement per second)")
+    finite_vals = [float(v) for v in (vals_a + vals_b) if math.isfinite(float(v))]
+    y_cap_applied = False
+    if len(finite_vals) >= 6:
+        ymax = max(finite_vals)
+        p_cap = float(np.percentile(np.array(finite_vals, dtype=float), EFFICIENCY_YCAP_PERCENTILE))
+        if math.isfinite(ymax) and math.isfinite(p_cap) and p_cap > EPS and ymax > p_cap + EPS:
+            plt.ylim(0.0, p_cap * 1.08)
+            y_cap_applied = True
+    if y_cap_applied:
+        plt.title(
+            f"{operator_type.capitalize()} Operator Efficiency (Full Run, y capped @ p{int(EFFICIENCY_YCAP_PERCENTILE)})"
+        )
+    else:
+        plt.title(f"{operator_type.capitalize()} Operator Efficiency (Full Run)")
+    plt.grid(True, axis="y", alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+
+
+def _plot_operator_efficiency_by_phase(
+    phase_efficiency_rows: Sequence[Dict[str, Any]],
+    algorithm_a: str,
+    algorithm_b: str,
+    out_path: Path,
+    operator_type: str,
+) -> None:
+    rows_all = _filter_operator_rows(phase_efficiency_rows, operator_type)
+    if not rows_all:
+        return
+
+    phase_specs = [
+        ("early_30pct", "Early"),
+        ("middle_40pct", "Mid"),
+        ("late_30pct", "Late"),
+    ]
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), constrained_layout=True)
+    plotted_any = False
+
+    for ax, (phase_key, phase_label) in zip(axes, phase_specs):
+        rows = [r for r in rows_all if str(r.get("phase", "")) == phase_key]
+        if not rows:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
+            ax.set_axis_off()
+            continue
+
+        grouped = _group_rows(rows, ["algorithm", "operator_type", "operator_name"])
+        values: Dict[Tuple[str, str], float] = {}
+        for (algorithm, op_type, op_name), grp_rows in grouped.items():
+            total_improvement = float(sum(float(r.get("total_improvement", 0.0)) for r in grp_rows))
+            total_time = float(sum(float(r.get("total_operator_runtime_proxy_seconds", 0.0)) for r in grp_rows))
+            efficiency = (total_improvement / total_time) if total_time > EPS else math.nan
+            op_id = _operator_plot_id(op_type, op_name)
+            values[(str(algorithm), op_id)] = efficiency
+
+        ops = sorted({op for _, op in values.keys()})
+        ops = sorted(
+            ops,
+            key=lambda op: max(values.get((algorithm_a, op), 0.0), values.get((algorithm_b, op), 0.0)),
+            reverse=True,
+        )[:10]
+        if not ops:
+            ax.text(0.5, 0.5, "No comparable operators", ha="center", va="center", transform=ax.transAxes)
+            ax.set_axis_off()
+            continue
+
+        x = np.arange(len(ops))
+        width = 0.42
+        ax.bar(x - width / 2, [values.get((algorithm_a, op), 0.0) for op in ops], width=width, label=algorithm_a)
+        ax.bar(x + width / 2, [values.get((algorithm_b, op), 0.0) for op in ops], width=width, label=algorithm_b)
+        xtick_labels = [_strip_operator_type_prefix(op, operator_type) for op in ops]
+        ax.set_xticks(x)
+        ax.set_xticklabels(xtick_labels, rotation=70, ha="right", fontsize=8)
+        ax.set_title(f"{phase_label} phase")
+        ax.grid(True, axis="y", alpha=0.25)
+        plotted_any = True
+
+    if not plotted_any:
+        plt.close(fig)
+        return
+
+    axes[0].set_ylabel("Efficiency (improvement per second)")
+    fig.suptitle(f"{operator_type.capitalize()} Operator Efficiency by Phase")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
+def _plot_final_best_contributions(
+    contribution_rows: Sequence[Dict[str, Any]],
+    algorithm_a: str,
+    algorithm_b: str,
+    out_path: Path,
+) -> None:
+    rows = list(contribution_rows)
+    if not rows:
+        return
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6), constrained_layout=True)
+    max_ops = 14
+
+    for ax, operator_type in zip(axes, ("destroy", "repair")):
+        subset = [
+            row
+            for row in rows
+            if str(row.get("operator_type", "")).strip().lower() == operator_type
+        ]
+        if not subset:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
+            ax.set_axis_off()
+            continue
+
+        counts_a: Dict[str, float] = {}
+        counts_b: Dict[str, float] = {}
+        for row in subset:
+            op_id = _operator_plot_id(row.get("operator_type"), row.get("operator_name"))
+            count = float(row.get("count_final_best_contributions", 0.0))
+            algo = str(row.get("algorithm", "")).strip()
+            if algo == algorithm_a:
+                counts_a[op_id] = count
+            elif algo == algorithm_b:
+                counts_b[op_id] = count
+
+        ops = sorted(set(counts_a.keys()) | set(counts_b.keys()))
+        ops = sorted(ops, key=lambda op: max(counts_a.get(op, 0.0), counts_b.get(op, 0.0)), reverse=True)[:max_ops]
+        if not ops:
+            ax.text(0.5, 0.5, "No comparable operators", ha="center", va="center", transform=ax.transAxes)
+            ax.set_axis_off()
+            continue
+
+        x = np.arange(len(ops))
+        width = 0.42
+        ax.bar(x - width / 2, [counts_a.get(op, 0.0) for op in ops], width=width, label=algorithm_a)
+        ax.bar(x + width / 2, [counts_b.get(op, 0.0) for op in ops], width=width, label=algorithm_b)
+        xtick_labels = [_strip_operator_type_prefix(op, operator_type) for op in ops]
+        ax.set_xticks(x)
+        ax.set_xticklabels(xtick_labels, rotation=70, ha="right", fontsize=8)
+        ax.set_ylabel("Final-best contribution count")
+        ax.set_title(f"{operator_type.capitalize()} Final-best Contributors")
+        ax.grid(True, axis="y", alpha=0.25)
+        ax.legend()
+
+    plt.suptitle("Operators Credited for Final Best Solution per Run")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -1800,7 +2357,12 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
         fieldnames=["comparison", "wins", "ties", "losses", "missing"],
     )
 
-    stats_rows = _paired_statistics(per_instance_rows, algorithm_a=algo_a_label, algorithm_b=algo_b_label)
+    stats_rows = _paired_statistics(
+        per_instance_rows,
+        algorithm_a=algo_a_label,
+        algorithm_b=algo_b_label,
+        cp_map=cp_map,
+    )
     _write_csv(tables_dir / "paired_statistics.csv", stats_rows, fieldnames=["metric", "value"])
 
     stability_rows = _stability_across_instances(per_instance_rows, algorithm_a=algo_a_label, algorithm_b=algo_b_label)
@@ -1978,6 +2540,13 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
         master_rows=master_rows,
         time_to_target_rows=ttt_run_rows,
     )
+    entropy_agg_per_instance_rows = _entropy_aggregated_per_instance(entropy_instance_rows)
+    entropy_agg_summary_rows = _entropy_aggregated_summary(entropy_agg_per_instance_rows)
+    entropy_agg_rows = _entropy_aggregated_statistics(
+        entropy_instance_rows=entropy_instance_rows,
+        algorithm_a=algo_a_label,
+        algorithm_b=algo_b_label,
+    )
     _write_csv(
         tables_dir / "operator_metrics_per_run.csv",
         per_run_op_rows,
@@ -2072,6 +2641,42 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
         ],
     )
     _write_csv(
+        tables_dir / "operator_entropy_aggregated_statistics.csv",
+        entropy_agg_rows,
+        fieldnames=[
+            "metric",
+            "n_pairs",
+            "mean_diff_A_minus_B",
+            "median_diff_A_minus_B",
+            "wilcoxon_p_value_one_sided_greater",
+            "wilcoxon_p_value_two_sided",
+        ],
+    )
+    _write_csv(
+        tables_dir / "operator_entropy_aggregated_per_instance.csv",
+        entropy_agg_per_instance_rows,
+        fieldnames=[
+            "instance",
+            "instance_index",
+            "algorithm",
+            "agg_selection_entropy_normalized",
+            "agg_effective_operator_count",
+            "agg_acceptance_rate",
+        ],
+    )
+    _write_csv(
+        tables_dir / "operator_entropy_aggregated_summary.csv",
+        entropy_agg_summary_rows,
+        fieldnames=[
+            "algorithm",
+            "metric",
+            "n_instances",
+            "mean_value",
+            "median_value",
+            "std_value",
+        ],
+    )
+    _write_csv(
         tables_dir / "operator_entropy_phase.csv",
         entropy_phase_rows,
         fieldnames=[
@@ -2107,8 +2712,9 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
         fieldnames=["algorithm", "operator_type", "operator_name", "count_final_best_contributions"],
     )
 
-    phase_rows = [r for r in phase_and_eff_rows if "phase" in r]
-    efficiency_rows = [r for r in phase_and_eff_rows if "efficiency_improvement_per_second" in r]
+    phase_rows = [r for r in phase_and_eff_rows if str(r.get("record_type", "")) == "phase_metrics"]
+    efficiency_rows = [r for r in phase_and_eff_rows if str(r.get("record_type", "")) == "efficiency"]
+    phase_efficiency_rows = [r for r in phase_and_eff_rows if str(r.get("record_type", "")) == "phase_efficiency"]
     _write_csv(
         tables_dir / "operator_phase_metrics.csv",
         phase_rows,
@@ -2132,6 +2738,22 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
             "algorithm",
             "operator_type",
             "operator_name",
+            "used_exploration",
+            "total_improvement",
+            "total_operator_runtime_proxy_seconds",
+            "efficiency_improvement_per_second",
+        ],
+    )
+    _write_csv(
+        tables_dir / "operator_phase_efficiency.csv",
+        phase_efficiency_rows,
+        fieldnames=[
+            "record_type",
+            "algorithm",
+            "phase",
+            "operator_type",
+            "operator_name",
+            "used_exploration",
             "total_improvement",
             "total_operator_runtime_proxy_seconds",
             "efficiency_improvement_per_second",
@@ -2152,6 +2774,12 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
     # Plots required by the plan.
     _plot_boxplot_gaps(master_rows, algorithm_a=algo_a_label, algorithm_b=algo_b_label, out_path=plots_dir / "boxplot_final_relative_gaps.png")
     _plot_scatter_mean_ab(per_instance_rows, algorithm_a=algo_a_label, algorithm_b=algo_b_label, out_path=plots_dir / "scatter_mean_A_vs_B.png")
+    _plot_win_loss_summary_matrix(
+        win_loss_rows,
+        algorithm_a=algo_a_label,
+        algorithm_b=algo_b_label,
+        out_path=plots_dir / "win_loss_summary_matrix.png",
+    )
     _plot_best_absolute_vs_benchmark_logy(
         per_instance_rows,
         cp_map=cp_map,
@@ -2162,6 +2790,22 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
     _plot_global_convergence(global_curve_rows, out_obj=plots_dir / "global_convergence_objective.png", out_gap=plots_dir / "global_convergence_gap.png")
     _plot_stability(per_instance_rows, algorithm_a=algo_a_label, algorithm_b=algo_b_label, out_path=plots_dir / "cv_stability_comparison.png")
     _plot_cv_distribution(per_instance_rows, algorithm_a=algo_a_label, algorithm_b=algo_b_label, out_path=plots_dir / "cv_distribution.png")
+    _plot_entropy_aggregated_summary(
+        entropy_agg_summary_rows,
+        algorithm_a=algo_a_label,
+        algorithm_b=algo_b_label,
+        out_path=plots_dir / "operator_entropy_aggregated_summary.png",
+    )
+    _plot_entropy_aggregated_paired(
+        entropy_agg_rows,
+        out_path=plots_dir / "operator_entropy_aggregated_paired.png",
+    )
+    _plot_entropy_aggregated_per_instance_diffs(
+        entropy_agg_per_instance_rows,
+        algorithm_a=algo_a_label,
+        algorithm_b=algo_b_label,
+        out_path=plots_dir / "operator_entropy_aggregated_per_instance_diffs.png",
+    )
     for operator_type in ("destroy", "repair"):
         _plot_selection_heatmap(
             per_instance_op_rows,
@@ -2183,7 +2827,28 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
             algorithm_b=algo_b_label,
             out_path=plots_dir / f"operator_improvement_probability_{operator_type}.png",
             operator_type=operator_type,
+            min_improvement_probability=max(0.0, float(args.operator_improvement_min_prob)),
         )
+        _plot_operator_efficiency(
+            efficiency_rows,
+            algorithm_a=algo_a_label,
+            algorithm_b=algo_b_label,
+            out_path=plots_dir / f"operator_efficiency_{operator_type}.png",
+            operator_type=operator_type,
+        )
+        _plot_operator_efficiency_by_phase(
+            phase_efficiency_rows,
+            algorithm_a=algo_a_label,
+            algorithm_b=algo_b_label,
+            out_path=plots_dir / f"operator_efficiency_by_phase_{operator_type}.png",
+            operator_type=operator_type,
+        )
+    _plot_final_best_contributions(
+        contribution_rows,
+        algorithm_a=algo_a_label,
+        algorithm_b=algo_b_label,
+        out_path=plots_dir / "operator_final_best_contributions.png",
+    )
     _plot_cactus(ttt_run_rows, out_path=plots_dir / "cactus_time_to_target.png")
 
     metadata = {
@@ -2211,13 +2876,27 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         description="Full ALNS analysis pipeline implementing tasks from ALNS_Complete_Detailed_Analysis_Plan."
     )
     parser.add_argument("--alns-root", default="benchmark_alns", help="Path to benchmark_alns root.")
-    parser.add_argument("--baseline-dir", default="benchmark_baseline", help="Directory with baseline_runs_*.csv.")
-    parser.add_argument("--baseline-csv", default="", help="Explicit baseline csv path. If empty, latest is used.")
+    parser.add_argument(
+        "--baseline-dir",
+        default="benchmark_baseline",
+        help="Directory with baseline_runs*_<YYYYMMDD-HHMMSS>.csv.",
+    )
+    parser.add_argument(
+        "--baseline-csv",
+        default="",
+        help="Explicit baseline csv path. If empty, latest timestamped baseline_runs file is used.",
+    )
     parser.add_argument("--variant-a", default="alns_plain", help="Variant directory for ALNS-A.")
     parser.add_argument("--variant-b", default="alns_late_phase", help="Variant directory for ALNS-B.")
     parser.add_argument("--run-id", default=None, help="Run ID folder (e.g., 20260227-153053). If omitted, latest per variant.")
     parser.add_argument("--target-gap", type=float, default=0.02, help="Target gap above CP for time-to-target analysis.")
     parser.add_argument("--time-step", type=float, default=1.0, help="Time grid step in seconds for convergence aggregation.")
+    parser.add_argument(
+        "--operator-improvement-min-prob",
+        type=float,
+        default=0.01,
+        help="Hide operators in improvement-probability plots if both algorithms are below this threshold.",
+    )
     parser.add_argument("--output-dir", default="analysis_alns", help="Output directory root.")
     return parser
 

@@ -132,7 +132,9 @@ def _build_solver(
             destroy_operators=_ordered_ops(list(destroy_names), destroy_lib, "destroy"),
             repair_operators=_ordered_ops(list(repair_names), repair_lib, "repair"),
         )
-        for key in ("equal_move_allowed_freezeout", "late_phase_weight", "late_phase_strict_improvement"):
+        if "late_phase_threshold" in checkpoint:
+            setattr(solver, "late_phase_threshold", checkpoint["late_phase_threshold"])
+        for key in ("late_phase_weight", "late_phase_strict_improvement"):
             if key in checkpoint:
                 setattr(solver, key, checkpoint[key])
     elif state_dim in (6, 7):
