@@ -190,7 +190,7 @@ def _resolve_checkpoint_path(raw: str) -> Path:
 
 
 def _discover_instance_stems() -> list[str]:
-    instances_dir = BASE_DIR / "Instances1-50"
+    instances_dir = BASE_DIR / "Instances2000"
     if not instances_dir.exists():
         return []
     stems = [path.stem for path in instances_dir.glob("Example*.txt")]
@@ -377,7 +377,7 @@ def _main_direct_mode(timeout_seconds: float) -> None:
 
     default_pool = _discover_instance_stems()
     if not default_pool:
-        raise ValueError("no instances discovered in Instances1-50")
+        raise ValueError("no instances discovered in Instances2000")
     n_random_instances = _ask_int("Number of random test instances", default=10, minimum=1)
     sample_seed = _ask_int("Random-instance sampler seed", default=0, minimum=0)
     test_instances = _sample_test_instances(default_pool, n_random_instances, sample_seed)

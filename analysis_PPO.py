@@ -27,6 +27,15 @@ matplotlib.rcParams["savefig.pad_inches"] = 0.25
 import matplotlib.pyplot as plt
 import numpy as np
 
+try:
+    from analysis_ALNS import (
+        _operator_plot_id as _alns_operator_plot_id,
+        _plot_operator_improvement as _alns_plot_operator_improvement,
+    )
+except Exception:
+    _alns_operator_plot_id = None
+    _alns_plot_operator_improvement = None
+
 
 EPS = 1e-9
 BASELINE_TS_PATTERN = re.compile(r"^baseline_runs(?:_.*)?_(\d{8}-\d{6})\.csv$")
@@ -104,6 +113,9 @@ def _file_token(value: Any) -> str:
 
 
 def _action_plot_id(action_type: Any, action_name: Any) -> str:
+    if _alns_operator_plot_id is not None:
+        return _alns_operator_plot_id(action_type, action_name)
+
     op_type = str(action_type).strip().lower()
     name = str(action_name).strip()
     if name == "":
@@ -1686,6 +1698,200 @@ def _action_effectiveness(action_rows: Sequence[Dict[str, Any]]) -> List[Dict[st
     return out
 
 
+def _best_model_by_mean_gap(eval_rows: Sequence[Dict[str, Any]]) -> Dict[str, Any] | None:
+    grouped: Dict[str, List[float]] = {}
+    checkpoint_seed_by_model: Dict[str, int | None] = {}
+    for row in eval_rows:
+        if str(row.get("status", "")).strip().lower() != "ok":
+            continue
+        model_id = str(row.get("model_id", "")).strip()
+        if model_id == "":
+            continue
+        gap = _to_float(row.get("gap_to_cp"))
+        if not math.isfinite(gap):
+            continue
+        grouped.setdefault(model_id, []).append(gap)
+        if model_id not in checkpoint_seed_by_model:
+            checkpoint_seed_by_model[model_id] = _to_int(row.get("checkpoint_seed"))
+    if not grouped:
+        return None
+    ranked = sorted(
+        (
+            (
+                _safe_mean(gaps),
+                model_id,
+                checkpoint_seed_by_model.get(model_id),
+                len(gaps),
+            )
+            for model_id, gaps in grouped.items()
+        ),
+        key=lambda t: (t[0], t[1]),
+    )
+    mean_gap, model_id, checkpoint_seed, n_runs = ranked[0]
+    return {
+        "model_id": model_id,
+        "checkpoint_seed": checkpoint_seed,
+        "mean_gap_to_cp": mean_gap,
+        "n_eval_rows": n_runs,
+    }
+
+
+def _operator_effectiveness_for_mean_vs_best_seed(
+    action_rows: Sequence[Dict[str, Any]],
+    eval_rows: Sequence[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    best = _best_model_by_mean_gap(eval_rows)
+    if best is None:
+        return [], {}
+
+    mean_label = "PPO-mean"
+    best_seed = best.get("checkpoint_seed")
+    best_label = f"PPO-best-seed{best_seed}" if best_seed is not None else f"PPO-best-{best['model_id']}"
+    best_model_id = str(best["model_id"])
+
+    events: List[Dict[str, Any]] = []
+    for row in action_rows:
+        model_id = str(row.get("model_id", "")).strip()
+        if model_id == "":
+            continue
+        variants = [mean_label]
+        if model_id == best_model_id:
+            variants.append(best_label)
+        if not variants:
+            continue
+        instance = str(row.get("test_instance_id", "")).strip()
+        seed = _to_int(row.get("eval_seed"))
+        delta = _to_float(row.get("delta_objective"))
+        accepted = _to_bool(row.get("accepted"))
+        for variant in variants:
+            for operator_type, key in (("destroy", "destroy_action"), ("repair", "repair_action")):
+                operator_name = str(row.get(key, "")).strip()
+                if operator_type == "destroy":
+                    if operator_name == "destroy_day":
+                        operator_name = "destroy_random_1_day"
+                    elif operator_name == "destroy_worker":
+                        operator_name = "destroy_random_1_worker"
+                if operator_name == "":
+                    continue
+                events.append(
+                    {
+                        "algorithm": variant,
+                        "instance": instance,
+                        "seed": seed,
+                        "operator_type": operator_type,
+                        "operator_name": operator_name,
+                        "delta_objective": delta,
+                        "accepted": accepted,
+                    }
+                )
+
+    if not events:
+        return [], {
+            "mean_algorithm_label": mean_label,
+            "best_algorithm_label": best_label,
+            "best_model_id": best_model_id,
+            "best_checkpoint_seed": best_seed,
+            "best_mean_gap_to_cp": best.get("mean_gap_to_cp"),
+            "best_n_eval_rows": best.get("n_eval_rows"),
+        }
+
+    run_totals: Dict[Tuple[str, str, int, str], int] = {}
+    for event in events:
+        seed = _to_int(event.get("seed"))
+        if seed is None:
+            continue
+        key = (str(event["algorithm"]), str(event["instance"]), seed, str(event["operator_type"]))
+        run_totals[key] = run_totals.get(key, 0) + 1
+
+    grouped_run_op = _group_rows(events, ["algorithm", "instance", "seed", "operator_type", "operator_name"])
+    per_run_rows: List[Dict[str, Any]] = []
+    for (algorithm, instance, seed, operator_type, operator_name), rows in grouped_run_op.items():
+        seed_int = _to_int(seed)
+        if seed_int is None:
+            continue
+        deltas = [_to_float(r.get("delta_objective")) for r in rows]
+        improving = [d for d in deltas if math.isfinite(d) and d < -EPS]
+        accepted_values = [1.0 if _to_bool(r.get("accepted")) else 0.0 for r in rows]
+        total_in_type = run_totals.get((str(algorithm), str(instance), seed_int, str(operator_type)), len(rows))
+        per_run_rows.append(
+            {
+                "algorithm": algorithm,
+                "instance": instance,
+                "operator_type": operator_type,
+                "operator_name": operator_name,
+                "selection_share": len(rows) / total_in_type if total_in_type > 0 else math.nan,
+                "improvement_probability": len(improving) / len(rows) if rows else math.nan,
+                "acceptance_rate": _safe_mean(accepted_values),
+                "mean_improving_delta": _safe_mean(improving),
+            }
+        )
+
+    per_instance_grouped = _group_rows(per_run_rows, ["algorithm", "instance", "operator_type", "operator_name"])
+    per_instance_rows: List[Dict[str, Any]] = []
+    for (algorithm, instance, operator_type, operator_name), rows in per_instance_grouped.items():
+        per_instance_rows.append(
+            {
+                "algorithm": algorithm,
+                "instance": instance,
+                "operator_type": operator_type,
+                "operator_name": operator_name,
+                "mean_selection_share": _safe_mean([_to_float(r.get("selection_share")) for r in rows]),
+                "mean_improvement_probability": _safe_mean([_to_float(r.get("improvement_probability")) for r in rows]),
+                "mean_acceptance_rate": _safe_mean([_to_float(r.get("acceptance_rate")) for r in rows]),
+                "mean_improving_delta": _safe_mean([_to_float(r.get("mean_improving_delta")) for r in rows]),
+            }
+        )
+
+    global_grouped = _group_rows(per_instance_rows, ["algorithm", "operator_type", "operator_name"])
+    global_rows: List[Dict[str, Any]] = []
+    for (algorithm, operator_type, operator_name), rows in global_grouped.items():
+        shares = [_to_float(r.get("mean_selection_share")) for r in rows]
+        probs = [_to_float(r.get("mean_improvement_probability")) for r in rows]
+        improving_deltas = [_to_float(r.get("mean_improving_delta")) for r in rows]
+        global_rows.append(
+            {
+                "algorithm": algorithm,
+                "operator_type": operator_type,
+                "operator_name": operator_name,
+                "mean_selection_share": _safe_mean(shares),
+                "mean_improvement_probability": _safe_mean(probs),
+                "mean_improving_delta": _safe_mean(improving_deltas),
+                "std_selection_share_across_instances": _safe_std(shares),
+                "n_instances": len(rows),
+            }
+        )
+
+    meta = {
+        "mean_algorithm_label": mean_label,
+        "best_algorithm_label": best_label,
+        "best_model_id": best_model_id,
+        "best_checkpoint_seed": best_seed,
+        "best_mean_gap_to_cp": best.get("mean_gap_to_cp"),
+        "best_n_eval_rows": best.get("n_eval_rows"),
+    }
+    return global_rows, meta
+
+
+def _plot_operator_improvement_mean_vs_best_seed(
+    global_rows: Sequence[Dict[str, Any]],
+    mean_algorithm_label: str,
+    best_algorithm_label: str,
+    out_dir: Path,
+    min_improvement_probability: float = 0.01,
+) -> None:
+    if not global_rows or _alns_plot_operator_improvement is None:
+        return
+    for operator_type in ("destroy", "repair"):
+        _alns_plot_operator_improvement(
+            global_operator_rows=global_rows,
+            algorithm_a=mean_algorithm_label,
+            algorithm_b=best_algorithm_label,
+            out_path=out_dir / f"operator_improvement_probability_{operator_type}.png",
+            operator_type=operator_type,
+            min_improvement_probability=min_improvement_probability,
+        )
+
+
 def _training_diagnostics(run_dir: Path, summary_rows: Sequence[Dict[str, str]]) -> List[Dict[str, Any]]:
     logs_dir = run_dir / "logs"
     out: List[Dict[str, Any]] = []
@@ -3046,6 +3252,10 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
     )
     action_usage_run_rows, action_usage_instance_rows, action_usage_global_rows = _action_usage_tables(action_rows)
     action_effectiveness_rows = _action_effectiveness(action_rows)
+    operator_effectiveness_variant_rows, operator_effectiveness_variant_meta = _operator_effectiveness_for_mean_vs_best_seed(
+        action_rows=action_rows,
+        eval_rows=eval_rows,
+    )
     training_rows = _training_diagnostics(run_dir=run_dir, summary_rows=summary_rows)
     quality_checks = _build_data_quality_checks(
         summary_rows=summary_rows,
@@ -3440,6 +3650,20 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
         ],
     )
     _write_csv(
+        tables_dir / "operator_effectiveness_mean_vs_best_seed_global.csv",
+        operator_effectiveness_variant_rows,
+        fieldnames=[
+            "algorithm",
+            "operator_type",
+            "operator_name",
+            "mean_selection_share",
+            "mean_improvement_probability",
+            "mean_improving_delta",
+            "std_selection_share_across_instances",
+            "n_instances",
+        ],
+    )
+    _write_csv(
         tables_dir / "within_episode_progress_runs.csv",
         progress_run_rows,
         fieldnames=[
@@ -3643,6 +3867,14 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
     _plot_action_usage_heatmap(action_usage_global_rows, out_path=plots_dir / "action_usage_heatmap.png")
     _plot_action_usage_heatmap_per_model(action_usage_instance_rows, out_dir=plots_dir / "action_usage_by_model")
     _plot_action_effectiveness_bars_per_model(action_effectiveness_rows, out_dir=plots_dir / "action_effectiveness_by_model")
+    if operator_effectiveness_variant_meta:
+        _plot_operator_improvement_mean_vs_best_seed(
+            global_rows=operator_effectiveness_variant_rows,
+            mean_algorithm_label=str(operator_effectiveness_variant_meta.get("mean_algorithm_label", "PPO-mean")),
+            best_algorithm_label=str(operator_effectiveness_variant_meta.get("best_algorithm_label", "PPO-best")),
+            out_dir=plots_dir / "operator_effectiveness_mean_vs_best_seed",
+            min_improvement_probability=float(args.operator_improvement_min_prob),
+        )
     _plot_pairwise_scatter_model_means(matrix_rows, models=models, instances=instances, out_dir=plots_dir / "pairwise_scatter")
     if ppo_vs_alns_matrix_rows:
         ppo_alns_plots_dir = plots_dir / "ppo_vs_alns"
@@ -3700,6 +3932,8 @@ def run_analysis(args: argparse.Namespace) -> Dict[str, Any]:
         "n_ppo_vs_alns_rows": len(ppo_vs_alns_rows),
         "n_ppo_vs_alns_summary_rows": len(ppo_vs_alns_summary_rows),
         "n_action_rows": len(action_rows),
+        "n_operator_effectiveness_variant_rows": len(operator_effectiveness_variant_rows),
+        "operator_effectiveness_variant": operator_effectiveness_variant_meta,
         "n_convergence_run_rows": len(conv_run_rows),
         "n_time_to_target_rows": len(ttt_run_rows),
         "n_all_method_run_rows": len(all_method_run_rows),
@@ -3739,6 +3973,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-eval-seeds", type=int, default=20, help="Expected number of evaluation seeds per (model,test_instance).")
     parser.add_argument("--target-gap", type=float, default=0.02, help="Target relative gap above baseline for time-to-target analysis.")
     parser.add_argument("--time-step", type=float, default=1.0, help="Time grid step in seconds for convergence aggregation.")
+    parser.add_argument(
+        "--operator-improvement-min-prob",
+        type=float,
+        default=0.01,
+        help="Hide operators in mean-vs-best-seed operator improvement plots if both variants are below this threshold.",
+    )
     parser.add_argument("--output-dir", default="analysis_ppo", help="Output directory root.")
     return parser
 

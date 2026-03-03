@@ -1360,11 +1360,11 @@ def plot_training(log, show: bool = False, output_path: Path | None = None):
 if __name__ == "__main__":
     base = Path(__file__).resolve().parent
     instance_paths = sorted(
-        (base / "Instances1-50").glob("Example*.txt"),
+        (base / "Instances2000").glob("Example*.txt"),
         key=_instance_sort_key,
     )
     if not instance_paths:
-        raise FileNotFoundError("no instance files found in Instances1-50")
+        raise FileNotFoundError("no instance files found in Instances2000")
     instance_path = instance_paths[0]
     instance, schedule = load_instance_and_schedule(
         file_path=instance_path,

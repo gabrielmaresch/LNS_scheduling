@@ -9,7 +9,7 @@ from rws_mzk_pipeline import build_rws_model_instance, solve_rws_lns
 
 def main() -> None:
     base = Path(__file__).resolve().parent
-    instance_path = base / "Instances1-50" / "Example1.txt"
+    instance_path = base / "Instances2000" / "Example1.txt"
     model_path = base / "rws_instance.mzn"
     instance = parse_instance_file(instance_path, cyclicity=True)
 

@@ -84,7 +84,7 @@ def _build_repair_ops(model_path: Path) -> dict[str, Any]:
 
 
 def main() -> None:
-    instances_dir = BASE_DIR / "Instances1-50"
+    instances_dir = BASE_DIR / "Instances2000"
     instance_paths = sorted(instances_dir.glob("Example*.txt"), key=_instance_sort_key)
     if len(instance_paths) < 2:
         raise FileNotFoundError(f"Need at least 2 instance files in {instances_dir}")

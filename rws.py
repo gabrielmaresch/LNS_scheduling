@@ -773,7 +773,7 @@ if __name__ == "__main__":
         raise ValueError("example number must be >= 1")
 
     instance_path = (
-        Path(__file__).resolve().parent / "Instances1-50" / f"Example{example_number}.txt"
+        Path(__file__).resolve().parent / "Instances2000" / f"Example{example_number}.txt"
     )
     if not instance_path.exists():
         raise FileNotFoundError(f"instance file not found: {instance_path}")

@@ -161,7 +161,7 @@ def main() -> None:
     example_number = _ask_int("Instance number (ExampleN)", 0, minimum=0)
 
     instance_name = f"Example{example_number}"
-    instance_path = BASE_DIR / "Instances1-50" / f"{instance_name}.txt"
+    instance_path = BASE_DIR / "Instances2000" / f"{instance_name}.txt"
     if not instance_path.exists():
         raise FileNotFoundError(f"instance file not found: {instance_path}")
 

@@ -33,7 +33,7 @@ def _parse_int_row(line: str) -> List[int]:
 
 
 def parse_instance_file(file_path: str | Path, cyclicity: bool = True) -> RWS.Instance:
-    """Parse one `Instances1-50/Example*.txt` file into an `RWS.Instance`."""
+    """Parse one `Instances2000/Example*.txt` file into an `RWS.Instance`."""
     path = Path(file_path)
     lines = path.read_text(encoding="utf-8").splitlines()
 
@@ -188,7 +188,7 @@ if __name__ == "__main__":
         raise ValueError("example number must be >= 1")
 
     instance_path = (
-        Path(__file__).resolve().parent / "Instances1-50" / f"Example{example_number}.txt"
+        Path(__file__).resolve().parent / "Instances2000" / f"Example{example_number}.txt"
     )
     if not instance_path.exists():
         raise FileNotFoundError(f"instance file not found: {instance_path}")

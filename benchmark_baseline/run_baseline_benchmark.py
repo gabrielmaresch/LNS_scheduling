@@ -113,7 +113,7 @@ def main() -> None:
     if MiniZincWarning is not None:
         warnings.filterwarnings("ignore", category=MiniZincWarning)
 
-    instances_dir = BASE_DIR / "Instances1-50"
+    instances_dir = BASE_DIR / "Instances2000"
     instance_paths = sorted(instances_dir.glob("Example*.txt"), key=_instance_sort_key)
     if not instance_paths:
         raise FileNotFoundError(f"No instance files found in {instances_dir}")

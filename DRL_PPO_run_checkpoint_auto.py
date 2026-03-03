@@ -201,7 +201,7 @@ def run_checkpoint(
     timeout_seconds: float = 120.0,
     show_final_schedule: bool = True,
 ) -> None:
-    instance_path = BASE_DIR / "Instances1-50" / f"Example{example_number}.txt"
+    instance_path = BASE_DIR / "Instances2000" / f"Example{example_number}.txt"
     if not instance_path.exists():
         raise FileNotFoundError(f"instance file not found: {instance_path}")
     if not checkpoint_path.exists():

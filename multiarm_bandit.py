@@ -1096,7 +1096,7 @@ if __name__ == "__main__":
     raw_example = input("Example number [1]: ").strip()
     example_number = 1 if raw_example == "" else int(raw_example)
 
-    instance_path = base / "Instances1-50" / f"Example{example_number}.txt"
+    instance_path = base / "Instances2000" / f"Example{example_number}.txt"
     if not instance_path.exists():
         raise FileNotFoundError(f"instance file not found: {instance_path}")
 
