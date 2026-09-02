@@ -30,3 +30,14 @@ rws_instance.mzn
 
 # Additional instances
 Instances2000/
+
+# Operating system and editor temporary files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+Desktop.ini
+*~
+*.swp
+*.swo
